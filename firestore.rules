@@ -65,64 +65,34 @@ service cloud.firestore {
        SESSIONS
     ===================================================== */
 
-    match /sessions/{sessionId} {
+match /sessions/{sessionId} {
 
-      /*
-       Only session participants can view the session.
-      */
-      allow read: if signedIn()
-        && request.auth.uid in resource.data.userIds;
+  allow read: if signedIn()
+    && request.auth.uid in resource.data.userIds;
 
+  allow create: if signedIn()
+    && request.auth.uid in request.resource.data.userIds
+    && request.resource.data.userIds.size() == 2
+    && request.resource.data.createdBy == request.auth.uid;
 
-      /*
-       Session creator creates the request.
-      */
-      allow create: if signedIn()
-        && request.auth.uid in request.resource.data.userIds
-        && request.resource.data.userIds.size() == 2
-        && request.resource.data.createdBy == request.auth.uid;
+  allow update: if signedIn()
+    && request.auth.uid in resource.data.userIds
+    && request.resource.data.userIds == resource.data.userIds
+    && request.resource.data.createdBy == resource.data.createdBy
+    && request.resource.data.createdAt == resource.data.createdAt
+    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+      'status',
+      'approvedBy',
+      'approvedAt',
+      'confirmations',
+      'completedAt',
+      'startNotifications',
+      'rewardStatus',
+      'pointsAwarded'
+    ]);
 
-
-      /*
-       Participants can update ONLY the fields required
-       by the session workflow.
-      */
-      allow update: if signedIn()
-        && request.auth.uid in resource.data.userIds
-
-        /*
-         Prevent changing participants.
-        */
-        && request.resource.data.userIds == resource.data.userIds
-
-        /*
-         Prevent changing creator.
-        */
-        && request.resource.data.createdBy == resource.data.createdBy
-
-        /*
-         Prevent changing creation time.
-        */
-        && request.resource.data.createdAt == resource.data.createdAt
-
-        /*
-         Only these fields may be changed by the frontend.
-        */
-        && request.resource.data.diff(resource.data)
-          .affectedKeys()
-          .hasOnly([
-            'status',
-            'approvedBy',
-            'approvedAt',
-            'confirmations',
-            'completedAt',
-            'startNotifications'
-          ]);
-
-
-      allow delete: if false;
-    }
-
+  allow delete: if false;
+}
 
     /* =====================================================
        ASSIGNMENTS
