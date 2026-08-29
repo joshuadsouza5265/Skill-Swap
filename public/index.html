@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0b0b10"><meta name="description" content="SkillSwap — exchange skills, learn one-on-one, and grow together.">
+<title>SkillSwap — Learn. Teach. Swap.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="bg-orb orb-a"></div><div class="bg-orb orb-b"></div><div class="grid-bg"></div>
+<header class="navbar">
+<a class="brand" href="#home" aria-label="SkillSwap home"><span class="brand-mark">↔</span> Skill<span>Swap</span></a>
+<nav id="desktopNav"><a href="#explore">Explore</a><a href="#how">How it works</a><a href="#rewards">Rewards</a><a href="#dashboard">Dashboard</a></nav>
+<div class="nav-actions"><button class="icon-btn" id="themeToggle" aria-label="Switch theme">☀</button><button class="btn ghost" id="loginBtn">Log in</button><button class="btn primary" id="signupBtn">Join free</button></div>
+<button class="menu" id="menuBtn" aria-label="Open menu">☰</button>
+</header>
+<div class="mobile-nav" id="mobileNav"><a href="#explore">Explore</a><a href="#how">How it works</a><a href="#rewards">Rewards</a><a href="#dashboard">Dashboard</a><button class="btn ghost" id="mobileLogin">Log in</button><button class="btn primary" id="mobileSignup">Join free</button></div>
+<main>
+<section id="home" class="hero container">
+<div class="hero-copy"><div class="eyebrow-pill">✦ PEER-TO-PEER LEARNING</div><h1>What you know can unlock <em>what you want to learn.</em></h1><p>SkillSwap helps people exchange knowledge one-on-one. Teach a skill you know, find someone who has the skill you want, and learn together.</p><div class="hero-buttons"><button class="btn primary big" data-scroll="#explore">Explore skills <span>→</span></button><button class="btn outline big" id="heroSignup">Create your profile</button></div><div class="trust-line"><span>One-to-one</span><i></i><span>Skill exchange</span><i></i><span>Progress tracking</span></div></div>
+<div class="hero-visual" aria-hidden="true"><div class="visual-ring ring-1"></div><div class="visual-ring ring-2"></div><div class="swap-card card-a"><div class="card-kicker">TEACH</div><div class="fake-avatar">JS</div><strong>JavaScript</strong><span>React · Web apps · APIs</span></div><div class="swap-core">↔</div><div class="swap-card card-b"><div class="card-kicker">LEARN</div><div class="fake-avatar alt">PY</div><strong>Python</strong><span>Automation · Data · AI</span></div></div>
+</section>
+<section class="principles container"><div><strong>01</strong><span>Exchange knowledge</span></div><div><strong>02</strong><span>Meet one-on-one</span></div><div><strong>03</strong><span>Build consistency</span></div><div><strong>04</strong><span>Earn through progress</span></div></section>
+<section id="explore" class="section container"><div class="section-head"><div><div class="eyebrow">DISCOVER</div><h2>Find a skill to learn</h2><p>Search real member profiles once people start joining your SkillSwap.</p></div><div class="search-wrap"><span>⌕</span><input id="skillSearch" autocomplete="off" placeholder="Search Java, Python, design..." aria-label="Search skills"></div></div><div id="skillsState" class="state-card">Create an account to explore members and skills.</div><div id="skillGrid" class="skill-grid"></div></section>
+<section id="how" class="section process"><div class="container"><div class="center-head"><div class="eyebrow">HOW IT WORKS</div><h2>A simple exchange, built around people.</h2><p>No giant classes. No endless recorded lectures. Find a compatible person and make the exchange useful.</p></div><div class="steps"><article class="step"><span>01</span><div class="step-icon">◎</div><h3>Build your profile</h3><p>Add what you can teach, what you want to learn, your level and availability.</p></article><article class="step"><span>02</span><div class="step-icon">⌕</div><h3>Search & connect</h3><p>Search skills and review profiles that match what you want to learn and teach.</p></article><article class="step"><span>03</span><div class="step-icon">◷</div><h3>Schedule together</h3><p>Agree on a date, duration, topics and an assignment for the next session.</p></article><article class="step"><span>04</span><div class="step-icon">✦</div><h3>Track progress</h3><p>Complete sessions and assignments, maintain your streak and build reward points.</p></article></div></div></section>
+<section id="rewards" class="section container rewards"><div class="reward-copy"><div class="eyebrow">PROGRESS & REWARDS</div><h2>Make consistency part of the learning loop.</h2><p>SkillSwap keeps a simple progress record so learners can see their effort instead of relying on vague completion badges.</p><div class="reward-list"><div><b>+50</b><span><strong>Completed session</strong><small>Points for a completed learning session.</small></span></div><div><b>+25</b><span><strong>Completed assignment</strong><small>Points for completing an assigned task.</small></span></div><div><b>+10</b><span><strong>7-day streak</strong><small>Bonus points when you maintain seven consecutive active days.</small></span></div></div></div><div class="wallet-card"><div class="wallet-top"><span>YOUR WALLET</span><span id="walletStatus">Not signed in</span></div><div class="wallet-points"><strong id="walletPoints">0</strong><span>points</span></div><div class="progress"><i id="walletProgress"></i></div><div class="wallet-meta"><span id="walletRemaining">Sign in to track rewards</span><b id="walletStreak">— day streak</b></div><button class="btn primary full" id="walletAction">Open dashboard</button></div></section>
+<section id="dashboard" class="section dashboard"><div class="container"><div class="section-head"><div><div class="eyebrow">YOUR SPACE</div><h2>Dashboard</h2><p id="dashboardSubtitle">Sign in to manage your profile, connections and sessions.</p></div><button class="btn outline" id="profileBtn">Edit profile</button></div><div id="dashboardContent" class="dashboard-grid"><div class="state-card">Your dashboard will appear here after you sign in.</div></div></div></section>
+<section class="section final-cta container"><div><div class="eyebrow">START WITH WHAT YOU KNOW</div><h2>Everyone has a skill worth sharing.</h2><p>Create a free profile and make your first connection.</p></div><button class="btn primary big" id="ctaSignup">Join SkillSwap <span>→</span></button></section>
+</main>
+<footer><div class="container footer-inner"><div><div class="brand">↔ Skill<span>Swap</span></div><p>Learn from people. Teach what you know.</p></div><div class="footer-note">© 2026 SkillSwap · Built for peer learning</div></div></footer>
+<div class="modal-backdrop" id="modalBackdrop" aria-hidden="true"><div class="modal" role="dialog" aria-modal="true"><button class="close" id="modalClose" aria-label="Close">×</button><div id="modalContent"></div></div></div>
+<div id="toast" class="toast" role="status"></div>
+<script type="module" src="app.js"></script>
+</body></html>
