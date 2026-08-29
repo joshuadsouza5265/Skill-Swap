@@ -33,6 +33,15 @@ const db = getFirestore(app);
 let currentUser = null;
 let unsubscribeProfile = null;
 
+/*
+=========================================================
+SESSION TIMER
+=========================================================
+*/
+
+let sessionTimer = null;
+let sessionCheckRunning = false;
+
 const $ = (selector) => document.querySelector(selector);
 
 const getValue = (selector, fallback = "") => {
@@ -46,14 +55,17 @@ const getValue = (selector, fallback = "") => {
   return element.value ?? fallback;
 };
 
-const esc = (value) =>
-  String(value ?? "").replace(/[&<>'"]/g, (char) => ({
+const esc = (value) => {
+  const replacements = {
     "&": "&amp;",
     "<": "&lt;",
     ">": "&gt;",
     "'": "&#39;",
     '"': "&quot;"
-  }[char]));
+  };
+
+  return String(value ?? "").replace(/[&<>'"]/g, (char) => replacements[char] ?? char);
+};
 
 const split = (value) =>
   String(value || "")
@@ -61,14 +73,18 @@ const split = (value) =>
     .map((x) => x.trim())
     .filter(Boolean);
 
-const initials = (name) =>
-  String(name || "User")
+const initials = (name) => {
+  const result = String(name || "User")
     .trim()
     .split(/\s+/)
     .map((x) => x[0])
     .join("")
     .slice(0, 2)
-    .toUpperCase() || "U";
+    .toUpperCase();
+
+  return result || "U";
+};
+
 
 function toast(message) {
   const element = $("#toast");
@@ -82,6 +98,7 @@ function toast(message) {
   }, 2800);
 }
 
+
 function showError(element, error) {
   if (!element) return;
 
@@ -93,6 +110,7 @@ function showError(element, error) {
     </div>
   `;
 }
+
 
 function firebaseError(error) {
   const messages = {
@@ -121,9 +139,11 @@ function firebaseError(error) {
 }
 
 
-/* =========================================================
-   MODALS
-========================================================= */
+/*
+=========================================================
+MODALS
+=========================================================
+*/
 
 function openModal(type, data = {}) {
   const backdrop = $("#modalBackdrop");
@@ -136,6 +156,7 @@ function openModal(type, data = {}) {
   renderModal(type, data);
 }
 
+
 function closeModal() {
   const backdrop = $("#modalBackdrop");
 
@@ -144,6 +165,7 @@ function closeModal() {
   backdrop.classList.remove("open");
   backdrop.setAttribute("aria-hidden", "true");
 }
+
 
 window.openModal = openModal;
 window.closeModal = closeModal;
@@ -163,9 +185,11 @@ function renderModal(type, data = {}) {
   if (!container) return;
 
 
-  /* =========================
-     LOGIN
-  ========================= */
+  /*
+  =========================================================
+  LOGIN
+  =========================================================
+  */
 
   if (type === "login") {
     container.innerHTML = `
@@ -210,9 +234,11 @@ function renderModal(type, data = {}) {
   }
 
 
-  /* =========================
-     SIGNUP
-  ========================= */
+  /*
+  =========================================================
+  SIGNUP
+  =========================================================
+  */
 
   if (type === "signup") {
     container.innerHTML = `
@@ -315,9 +341,11 @@ function renderModal(type, data = {}) {
   }
 
 
-  /* =========================
-     PROFILE
-  ========================= */
+  /*
+  =========================================================
+  PROFILE
+  =========================================================
+  */
 
   if (type === "profile") {
     const profile = currentUser?.profile || {};
@@ -418,9 +446,11 @@ function renderModal(type, data = {}) {
   }
 
 
-  /* =========================
-     SESSION
-  ========================= */
+  /*
+  =========================================================
+  SCHEDULE SESSION
+  =========================================================
+  */
 
   if (type === "session") {
     container.innerHTML = `
@@ -519,9 +549,137 @@ function renderModal(type, data = {}) {
   }
 
 
-  /* =========================
-     REDEEM
-  ========================= */
+  /*
+  =========================================================
+  SESSION START POPUP
+  =========================================================
+  */
+
+  if (type === "sessionStart") {
+
+    container.innerHTML = `
+      <div class="session-popup">
+
+        <div style="font-size:42px;margin-bottom:10px;">
+          🤝
+        </div>
+
+        <h2>It's time to meet!</h2>
+
+        <p>
+          Your SkillSwap session is starting now.
+        </p>
+
+        <div class="state-card" style="margin:20px 0;text-align:left;">
+
+          <strong>
+            ${esc(data.topicA || "Skill exchange")}
+          </strong>
+
+          <br>
+
+          <small>
+            ${esc(data.topicB || "")}
+          </small>
+
+          <br><br>
+
+          <small>
+            Contact your partner using the contact details
+            provided for this session.
+          </small>
+
+        </div>
+
+        <button
+          class="btn primary"
+          id="sessionStartDone"
+        >
+          Got it — contact my partner
+        </button>
+
+      </div>
+    `;
+  }
+
+
+  /*
+  =========================================================
+  SESSION COMPLETION POPUP
+  =========================================================
+  */
+
+  if (type === "sessionComplete") {
+
+    container.innerHTML = `
+      <div class="session-popup">
+
+        <div style="font-size:42px;margin-bottom:10px;">
+          ⏰
+        </div>
+
+        <h2>How did your meeting go?</h2>
+
+        <p>
+          Your scheduled SkillSwap session has ended.
+        </p>
+
+        <div class="state-card" style="margin:20px 0;text-align:left;">
+
+          <strong>
+            ${esc(data.topicA || "Skill exchange")}
+          </strong>
+
+          <br>
+
+          <small>
+            ${esc(data.topicB || "")}
+          </small>
+
+          <br><br>
+
+          <small>
+            Your reward will only be released when
+            <strong>both you and your partner</strong>
+            confirm that the meeting was completed.
+          </small>
+
+        </div>
+
+        <div
+          style="
+            display:grid;
+            grid-template-columns:1fr 1fr;
+            gap:12px;
+          "
+        >
+
+          <button
+            class="btn primary"
+            id="sessionYes"
+          >
+            ✓ Yes, we completed it
+          </button>
+
+          <button
+            class="btn outline"
+            id="sessionNo"
+          >
+            ✕ No
+          </button>
+
+        </div>
+
+      </div>
+    `;
+  }
+
+
+  /*
+  =========================================================
+  REDEEM
+  =========================================================
+  */
 
   if (type === "redeem") {
     container.innerHTML = `
@@ -547,9 +705,11 @@ function renderModal(type, data = {}) {
   }
 
 
-  /* =========================
-     ACTIVITY
-  ========================= */
+  /*
+  =========================================================
+  ACTIVITY
+  =========================================================
+  */
 
   if (type === "activity") {
     container.innerHTML = `
@@ -562,17 +722,21 @@ function renderModal(type, data = {}) {
     `;
   }
 
+
   bindModal(type, data);
 }
 
 
-/* =========================================================
-   MODAL BINDINGS
-========================================================= */
+/*
+=========================================================
+MODAL BINDINGS
+=========================================================
+*/
 
 function bindModal(type, data) {
 
   $("#switchAuth")?.addEventListener("click", (event) => {
+
     event.preventDefault();
 
     openModal(
@@ -580,12 +744,15 @@ function bindModal(type, data) {
         ? "signup"
         : "login"
     );
+
   });
 
 
-  /* =========================
-     AUTH
-  ========================= */
+  /*
+  =========================================================
+  AUTH
+  =========================================================
+  */
 
   $("#authForm")?.addEventListener("submit", async (event) => {
 
@@ -611,6 +778,7 @@ function bindModal(type, data) {
         );
 
         closeModal();
+
         toast("Signed in successfully.");
 
       } else {
@@ -655,7 +823,9 @@ function bindModal(type, data) {
         );
 
         closeModal();
+
         toast("Profile created successfully.");
+
       }
 
     } catch (error) {
@@ -667,9 +837,11 @@ function bindModal(type, data) {
   });
 
 
-  /* =========================
-     PROFILE
-  ========================= */
+  /*
+  =========================================================
+  PROFILE
+  =========================================================
+  */
 
   $("#profileForm")?.addEventListener("submit", async (event) => {
 
@@ -682,9 +854,13 @@ function bindModal(type, data) {
     }
 
     if (!auth.currentUser) {
+
       toast("Please log in first.");
+
       closeModal();
+
       return;
+
     }
 
     try {
@@ -725,9 +901,11 @@ function bindModal(type, data) {
   });
 
 
-  /* =========================
-     CREATE SESSION
-  ========================= */
+  /*
+  =========================================================
+  CREATE SESSION
+  =========================================================
+  */
 
   $("#sessionForm")?.addEventListener("submit", async (event) => {
 
@@ -740,128 +918,187 @@ function bindModal(type, data) {
     }
 
     if (!auth.currentUser) {
+
       toast("Please log in first.");
+
       return;
+
     }
-
-    /*
-      IMPORTANT FIX:
-
-      The old code tried to read:
-
-      #assignmentDescription
-
-      but that input does NOT exist in your session form.
-
-      We now only read fields that actually exist.
-    */
 
     try {
 
-      const scheduledAt = getValue("#scheduledAt").trim();
-      const duration = Number(getValue("#duration", "60"));
-      const topicA = getValue("#topicA").trim();
-      const topicB = getValue("#topicB").trim();
-      const assignmentTitle = getValue("#assignmentTitle").trim();
+      const scheduledAt =
+        getValue("#scheduledAt").trim();
 
-      /*
-        Your HTML uses:
+      const duration =
+        Number(getValue("#duration", "60"));
 
-        id="ContactDetails"
+      const topicA =
+        getValue("#topicA").trim();
 
-        so we use that exact ID.
-      */
+      const topicB =
+        getValue("#topicB").trim();
+
+      const assignmentTitle =
+        getValue("#assignmentTitle").trim();
+
       const contactDetails =
         getValue("#ContactDetails").trim();
 
 
       if (!scheduledAt) {
+
         toast("Please choose a date and time.");
+
         return;
+
       }
 
       if (!topicA) {
+
         toast("Please enter your topic.");
+
         return;
+
       }
 
       if (!topicB) {
+
         toast("Please enter your partner's topic.");
+
         return;
+
       }
 
       if (!data?.id) {
+
         toast("The selected partner could not be found.");
-        console.error("Missing partner data:", data);
+
+        console.error(
+          "Missing partner data:",
+          data
+        );
+
         return;
+
       }
 
 
-      /* =========================
-         CREATE SESSION
-      ========================= */
+      /*
+      =====================================================
+      CREATE SESSION
+      =====================================================
+      */
 
-      const sessionReference = await addDoc(
-        collection(db, "sessions"),
-        {
-          userIds: [
-            auth.currentUser.uid,
-            data.id
-          ],
+      const sessionReference =
+        await addDoc(
+          collection(db, "sessions"),
+          {
 
-          createdBy: auth.currentUser.uid,
+            userIds: [
+              auth.currentUser.uid,
+              data.id
+            ],
 
-          scheduledAt,
+            createdBy:
+              auth.currentUser.uid,
 
-          duration,
+            /*
+              Useful for identifying the other participant.
+            */
 
-          topicA,
-          topicB,
+            partnerId:
+              data.id,
 
-          /*
-            Save the contact details so the
-            session/partner can access them
-            according to your Firestore rules.
-          */
-          contactDetails,
+            scheduledAt,
 
-          status: "scheduled",
+            duration,
 
-          createdAt: serverTimestamp()
-        }
-      );
+            topicA,
+
+            topicB,
+
+            contactDetails,
+
+            /*
+            =================================================
+            NEW SESSION STATE
+            =================================================
+            */
+
+            status: "scheduled",
+
+            /*
+              Each user has their own confirmation.
+
+              false = not answered
+              true  = confirmed completed
+            */
+
+            confirmations: {
+              [auth.currentUser.uid]: null,
+              [data.id]: null
+            },
+
+            /*
+              Prevents the same browser from repeatedly
+              showing the START popup.
+            */
+
+            startNotifications: {
+              [auth.currentUser.uid]: false,
+              [data.id]: false
+            },
+
+            /*
+              Backend will use this after both users confirm.
+            */
+
+            rewardStatus: "waiting",
+
+            pointsAwarded: false,
+
+            createdAt:
+              serverTimestamp()
+
+          }
+        );
 
 
-      /* =========================
-         CREATE ASSIGNMENT
-         ONLY IF TITLE EXISTS
-      ========================= */
+      /*
+      =====================================================
+      CREATE ASSIGNMENT
+      =====================================================
+      */
 
       if (assignmentTitle) {
 
         await addDoc(
           collection(db, "assignments"),
           {
-            sessionId: sessionReference.id,
 
-            userId: auth.currentUser.uid,
+            sessionId:
+              sessionReference.id,
 
-            partnerId: data.id,
+            userId:
+              auth.currentUser.uid,
 
-            title: assignmentTitle,
+            partnerId:
+              data.id,
 
-            /*
-              There is no assignmentDescription
-              field in your HTML, so don't try
-              to read it.
-            */
+            title:
+              assignmentTitle,
+
             description: "",
 
             completed: false,
 
-            createdAt: serverTimestamp()
+            createdAt:
+              serverTimestamp()
+
           }
         );
+
       }
 
 
@@ -871,6 +1108,13 @@ function bindModal(type, data) {
 
       await loadDashboard();
 
+      /*
+        Check immediately in case someone scheduled
+        a session for a time that has already passed.
+      */
+
+      await checkSessions();
+
     } catch (error) {
 
       console.error(
@@ -878,43 +1122,337 @@ function bindModal(type, data) {
         error
       );
 
-      showError(errorElement, error);
+      showError(
+        errorElement,
+        error
+      );
 
     }
 
   });
 
 
-  /* =========================
-     ACTIVITY
-  ========================= */
+  /*
+  =========================================================
+  SESSION START POPUP
+  =========================================================
+  */
+
+  $("#sessionStartDone")?.addEventListener(
+    "click",
+    async () => {
+
+      closeModal();
+
+      toast(
+        "Good luck with your SkillSwap session!"
+      );
+
+    }
+  );
+
+
+  /*
+  =========================================================
+  SESSION YES
+  =========================================================
+  */
+
+  $("#sessionYes")?.addEventListener(
+    "click",
+    async () => {
+
+      await confirmSession(
+        data.id,
+        true
+      );
+
+    }
+  );
+
+
+  /*
+  =========================================================
+  SESSION NO
+  =========================================================
+  */
+
+  $("#sessionNo")?.addEventListener(
+    "click",
+    async () => {
+
+      await confirmSession(
+        data.id,
+        false
+      );
+
+    }
+  );
+
+
+  /*
+  =========================================================
+  ACTIVITY
+  =========================================================
+  */
 
   if (type === "activity") {
+
     loadActivity();
+
   }
 
 
-  /* =========================
-     REDEMPTION
-  ========================= */
+  /*
+  =========================================================
+  REDEMPTION
+  =========================================================
+  */
 
   document
     .querySelectorAll("[data-redeem]")
     .forEach((button) => {
 
       button.onclick = () => {
+
         toast(
           "Redemption is available at the 1,000-point milestone."
         );
+
       };
 
     });
+
 }
 
 
-/* =========================================================
-   AUTH UI
-========================================================= */
+/*
+=========================================================
+CONFIRM SESSION
+=========================================================
+*/
+
+async function confirmSession(sessionId, completed) {
+
+  if (!auth.currentUser) {
+
+    closeModal();
+
+    openModal("login");
+
+    return;
+
+  }
+
+  try {
+
+    const sessionReference =
+      doc(
+        db,
+        "sessions",
+        sessionId
+      );
+
+    const snapshot =
+      await getDoc(sessionReference);
+
+    if (!snapshot.exists()) {
+
+      toast(
+        "This session could not be found."
+      );
+
+      closeModal();
+
+      return;
+
+    }
+
+    const session =
+      snapshot.data();
+
+    const uid =
+      auth.currentUser.uid;
+
+
+    /*
+    =====================================================
+    MAKE SURE CURRENT USER IS A PARTICIPANT
+    =====================================================
+    */
+
+    if (
+      !Array.isArray(session.userIds) ||
+      !session.userIds.includes(uid)
+    ) {
+
+      toast(
+        "You are not a participant in this session."
+      );
+
+      closeModal();
+
+      return;
+
+    }
+
+
+    /*
+    =====================================================
+    SAVE THIS USER'S ANSWER
+    =====================================================
+    */
+
+    const existingConfirmations =
+      session.confirmations || {};
+
+    const updatedConfirmations = {
+      ...existingConfirmations,
+      [uid]: completed
+    };
+
+
+    /*
+    =====================================================
+    CHECK WHETHER BOTH USERS HAVE ANSWERED YES
+    =====================================================
+    */
+
+    const participants =
+      session.userIds || [];
+
+    const bothConfirmed =
+      participants.length === 2 &&
+      participants.every(
+        (participantId) =>
+          updatedConfirmations[participantId] === true
+      );
+
+
+    /*
+    =====================================================
+    CHECK WHETHER EITHER USER SAID NO
+    =====================================================
+    */
+
+    const someoneSaidNo =
+      participants.some(
+        (participantId) =>
+          updatedConfirmations[participantId] === false
+      );
+
+
+    let rewardStatus =
+      session.rewardStatus || "waiting";
+
+
+    if (someoneSaidNo) {
+
+      rewardStatus = "not_eligible";
+
+    } else if (bothConfirmed) {
+
+      /*
+        IMPORTANT:
+
+        We do NOT directly add points here.
+
+        The backend should watch for:
+
+        rewardStatus === "pending"
+
+        and securely award points once.
+      */
+
+      rewardStatus = "pending";
+
+    } else {
+
+      rewardStatus = "waiting";
+
+    }
+
+
+    await updateDoc(
+      sessionReference,
+      {
+
+        [`confirmations.${uid}`]:
+          completed,
+
+        rewardStatus,
+
+        /*
+          Session itself is finished once the
+          scheduled time + duration has passed.
+        */
+
+        status:
+          "completed",
+
+        completedAt:
+          session.completedAt ||
+          serverTimestamp()
+
+      }
+    );
+
+
+    closeModal();
+
+
+    /*
+    =====================================================
+    USER FEEDBACK
+    =====================================================
+    */
+
+    if (!completed) {
+
+      toast(
+        "No reward points will be given for this session."
+      );
+
+    } else if (bothConfirmed) {
+
+      toast(
+        "Both users confirmed! Reward points are now pending backend processing."
+      );
+
+    } else {
+
+      toast(
+        "Your confirmation was saved. Waiting for your partner to confirm."
+      );
+
+    }
+
+
+    await loadDashboard();
+
+    await loadWallet();
+
+  } catch (error) {
+
+    console.error(
+      "Session confirmation error:",
+      error
+    );
+
+    toast(
+      firebaseError(error)
+    );
+
+  }
+
+}
+
+
+/*
+=========================================================
+AUTH UI
+=========================================================
+*/
 
 function updateNavigation(user) {
 
@@ -935,9 +1473,10 @@ function updateNavigation(user) {
 
     if (!button) return;
 
-    button.textContent = user
-      ? "Log out"
-      : "Log in";
+    button.textContent =
+      user
+        ? "Log out"
+        : "Log in";
 
   });
 
@@ -961,39 +1500,42 @@ function updateNavigation(user) {
           : button.id === "heroSignup"
             ? "Create your profile"
             : "Join free";
+
     }
 
   });
 
 
-  $("#loginBtn").onclick = async () => {
+  $("#loginBtn").onclick =
+    async () => {
 
-    if (auth.currentUser) {
+      if (auth.currentUser) {
 
-      await logout();
+        await logout();
 
-    } else {
+      } else {
 
-      openModal("login");
+        openModal("login");
 
-    }
+      }
 
-  };
+    };
 
 
-  $("#mobileLogin").onclick = async () => {
+  $("#mobileLogin").onclick =
+    async () => {
 
-    if (auth.currentUser) {
+      if (auth.currentUser) {
 
-      await logout();
+        await logout();
 
-    } else {
+      } else {
 
-      openModal("login");
+        openModal("login");
 
-    }
+      }
 
-  };
+    };
 
 
   [
@@ -1034,34 +1576,51 @@ async function logout() {
 
     closeModal();
 
-    toast("You have been logged out.");
+    stopSessionTimer();
+
+    toast(
+      "You have been logged out."
+    );
 
   } catch (error) {
 
-    console.error("Logout error:", error);
+    console.error(
+      "Logout error:",
+      error
+    );
 
-    toast("Could not log out. Please try again.");
+    toast(
+      "Could not log out. Please try again."
+    );
 
   }
 
 }
 
 
-/* =========================================================
-   PROFILE
-========================================================= */
+/*
+=========================================================
+PROFILE
+=========================================================
+*/
 
 async function getProfile(uid) {
 
-  const snapshot = await getDoc(
-    doc(db, "users", uid)
-  );
+  const snapshot =
+    await getDoc(
+      doc(
+        db,
+        "users",
+        uid
+      )
+    );
 
   if (!snapshot.exists()) {
     return null;
   }
 
   return snapshot.data();
+
 }
 
 
@@ -1074,16 +1633,23 @@ async function refreshLoggedInUser() {
   try {
 
     const profile =
-      await getProfile(auth.currentUser.uid);
+      await getProfile(
+        auth.currentUser.uid
+      );
 
     currentUser = {
       ...auth.currentUser,
-      profile: profile || {}
+      profile:
+        profile || {}
     };
 
     await loadSkills();
+
     await loadDashboard();
+
     await loadWallet();
+
+    await checkSessions();
 
   } catch (error) {
 
@@ -1101,9 +1667,11 @@ async function refreshLoggedInUser() {
 }
 
 
-/* =========================================================
-   SKILL SEARCH
-========================================================= */
+/*
+=========================================================
+SKILL SEARCH
+=========================================================
+*/
 
 async function loadSkills() {
 
@@ -1112,8 +1680,11 @@ async function loadSkills() {
       .trim()
       .toLowerCase();
 
-  const state = $("#skillsState");
-  const grid = $("#skillGrid");
+  const state =
+    $("#skillsState");
+
+  const grid =
+    $("#skillGrid");
 
   if (!state || !grid) {
     return;
@@ -1124,7 +1695,9 @@ async function loadSkills() {
     state.textContent =
       "Create an account to explore members and skills.";
 
-    state.style.display = "block";
+    state.style.display =
+      "block";
+
     grid.innerHTML = "";
 
     return;
@@ -1133,17 +1706,20 @@ async function loadSkills() {
 
   try {
 
-    const snapshot = await getDocs(
-      query(
-        collection(db, "users"),
-        orderBy("name")
-      )
-    );
+    const snapshot =
+      await getDocs(
+        query(
+          collection(db, "users"),
+          orderBy("name")
+        )
+      );
+
 
     const users =
       snapshot.docs
         .map((document) => ({
-          id: document.id,
+          id:
+            document.id,
           ...document.data()
         }))
         .filter(
@@ -1167,11 +1743,13 @@ async function loadSkills() {
 
     if (!users.length) {
 
-      state.style.display = "block";
+      state.style.display =
+        "block";
 
-      state.textContent = search
-        ? "No members match that search yet."
-        : "No other members have joined yet — invite a friend to create the first profile.";
+      state.textContent =
+        search
+          ? "No members match that search yet."
+          : "No other members have joined yet — invite a friend to create the first profile.";
 
       grid.innerHTML = "";
 
@@ -1180,7 +1758,9 @@ async function loadSkills() {
     }
 
 
-    state.style.display = "none";
+    state.style.display =
+      "none";
+
 
     grid.innerHTML =
       users
@@ -1199,7 +1779,10 @@ async function loadSkills() {
                 <div class="member-info">
 
                   <strong>
-                    ${esc(user.name || "Member")}
+                    ${esc(
+                      user.name ||
+                      "Member"
+                    )}
                   </strong>
 
                   <small>
@@ -1209,7 +1792,8 @@ async function loadSkills() {
                         .slice(0, 2)
                         .map(esc)
                         .join(" · ")
-                      || "new skills"
+                      ||
+                      "new skills"
                     }
                   </small>
 
@@ -1218,7 +1802,10 @@ async function loadSkills() {
               </div>
 
               <span class="availability">
-                ${esc(user.availability || "Flexible")}
+                ${esc(
+                  user.availability ||
+                  "Flexible"
+                )}
               </span>
 
             </div>
@@ -1226,14 +1813,16 @@ async function loadSkills() {
             <h3>
               ${esc(
                 (user.teach || [])[0]
-                || "Skills to share"
+                ||
+                "Skills to share"
               )}
             </h3>
 
             <p>
               ${esc(
                 user.bio
-                || "Ready to exchange knowledge one-on-one."
+                ||
+                "Ready to exchange knowledge one-on-one."
               )}
             </p>
 
@@ -1266,21 +1855,25 @@ async function loadSkills() {
       .querySelectorAll("[data-connect]")
       .forEach((button) => {
 
-        button.onclick = async () => {
+        button.onclick =
+          async () => {
 
-          const user =
-            users.find(
-              (item) =>
-                item.id === button.dataset.connect
+            const user =
+              users.find(
+                (item) =>
+                  item.id ===
+                  button.dataset.connect
+              );
+
+            if (!user) {
+              return;
+            }
+
+            await connectAndSchedule(
+              user
             );
 
-          if (!user) {
-            return;
-          }
-
-          await connectAndSchedule(user);
-
-        };
+          };
 
       });
 
@@ -1292,23 +1885,28 @@ async function loadSkills() {
       error
     );
 
-    state.style.display = "block";
+    state.style.display =
+      "block";
 
     state.textContent =
       "Could not load members. Check your Firestore rules.";
 
     grid.innerHTML = "";
 
-    toast(firebaseError(error));
+    toast(
+      firebaseError(error)
+    );
 
   }
 
 }
 
 
-/* =========================================================
-   CONNECTIONS
-========================================================= */
+/*
+=========================================================
+CONNECTIONS
+=========================================================
+*/
 
 async function connectAndSchedule(user) {
 
@@ -1336,16 +1934,23 @@ async function connectAndSchedule(user) {
 
 
     const alreadyConnected =
-      existingSnapshot.docs.some((document) => {
+      existingSnapshot.docs.some(
+        (document) => {
 
-        const data = document.data();
+          const data =
+            document.data();
 
-        return (
-          Array.isArray(data.userIds) &&
-          data.userIds.includes(user.id)
-        );
+          return (
+            Array.isArray(
+              data.userIds
+            ) &&
+            data.userIds.includes(
+              user.id
+            )
+          );
 
-      });
+        }
+      );
 
 
     if (!alreadyConnected) {
@@ -1353,6 +1958,7 @@ async function connectAndSchedule(user) {
       await addDoc(
         collection(db, "connections"),
         {
+
           userIds: [
             auth.currentUser.uid,
             user.id
@@ -1361,23 +1967,32 @@ async function connectAndSchedule(user) {
           initiator:
             auth.currentUser.uid,
 
-          status: "pending",
+          status:
+            "pending",
 
           createdAt:
             serverTimestamp()
+
         }
       );
 
-      toast("Connection request sent.");
+      toast(
+        "Connection request sent."
+      );
 
     } else {
 
-      toast("You are already connected with this member.");
+      toast(
+        "You are already connected with this member."
+      );
 
     }
 
 
-    openModal("session", user);
+    openModal(
+      "session",
+      user
+    );
 
 
   } catch (error) {
@@ -1387,16 +2002,20 @@ async function connectAndSchedule(user) {
       error
     );
 
-    toast(firebaseError(error));
+    toast(
+      firebaseError(error)
+    );
 
   }
 
 }
 
 
-/* =========================================================
-   DASHBOARD
-========================================================= */
+/*
+=========================================================
+DASHBOARD
+=========================================================
+*/
 
 async function loadDashboard() {
 
@@ -1416,12 +2035,15 @@ async function loadDashboard() {
     `;
 
     if ($("#profileBtn")) {
-      $("#profileBtn").style.display = "none";
+      $("#profileBtn").style.display =
+        "none";
     }
 
     if ($("#dashboardSubtitle")) {
+
       $("#dashboardSubtitle").textContent =
         "Sign in to manage your profile, connections and sessions.";
+
     }
 
     return;
@@ -1430,7 +2052,8 @@ async function loadDashboard() {
 
 
   if ($("#profileBtn")) {
-    $("#profileBtn").style.display = "block";
+    $("#profileBtn").style.display =
+      "block";
   }
 
 
@@ -1444,48 +2067,50 @@ async function loadDashboard() {
       sessionsSnapshot,
       assignmentsSnapshot,
       connectionsSnapshot
-    ] = await Promise.all([
+    ] =
+      await Promise.all([
 
-      getDocs(
-        query(
-          collection(db, "sessions"),
-          where(
-            "userIds",
-            "array-contains",
-            currentUser.uid
+        getDocs(
+          query(
+            collection(db, "sessions"),
+            where(
+              "userIds",
+              "array-contains",
+              currentUser.uid
+            )
+          )
+        ),
+
+        getDocs(
+          query(
+            collection(db, "assignments"),
+            where(
+              "userId",
+              "==",
+              currentUser.uid
+            )
+          )
+        ),
+
+        getDocs(
+          query(
+            collection(db, "connections"),
+            where(
+              "userIds",
+              "array-contains",
+              currentUser.uid
+            )
           )
         )
-      ),
 
-      getDocs(
-        query(
-          collection(db, "assignments"),
-          where(
-            "userId",
-            "==",
-            currentUser.uid
-          )
-        )
-      ),
-
-      getDocs(
-        query(
-          collection(db, "connections"),
-          where(
-            "userIds",
-            "array-contains",
-            currentUser.uid
-          )
-        )
-      )
-
-    ]);
+      ]);
 
 
     const sessions =
       sessionsSnapshot.docs
         .map((document) => ({
-          id: document.id,
+          id:
+            document.id,
           ...document.data()
         }));
 
@@ -1493,7 +2118,8 @@ async function loadDashboard() {
     const assignments =
       assignmentsSnapshot.docs
         .map((document) => ({
-          id: document.id,
+          id:
+            document.id,
           ...document.data()
         }));
 
@@ -1501,22 +2127,53 @@ async function loadDashboard() {
     const connections =
       connectionsSnapshot.docs
         .map((document) => ({
-          id: document.id,
+          id:
+            document.id,
           ...document.data()
         }));
+
+
+    /*
+    =====================================================
+    ONLY SHOW UPCOMING / WAITING SESSIONS
+    =====================================================
+    */
+
+    const now =
+      Date.now();
 
 
     const upcoming =
       sessions
         .filter(
-          (session) =>
-            session.status !== "completed"
+          (session) => {
+
+            if (
+              session.status ===
+              "completed"
+            ) {
+              return false;
+            }
+
+            const start =
+              parseScheduledDate(
+                session.scheduledAt
+              );
+
+            return start &&
+              start.getTime() >= now;
+
+          }
         )
         .sort(
           (a, b) =>
-            String(a.scheduledAt || "")
+            String(
+              a.scheduledAt || ""
+            )
               .localeCompare(
-                String(b.scheduledAt || "")
+                String(
+                  b.scheduledAt || ""
+                )
               )
         )
         .slice(0, 4);
@@ -1553,14 +2210,18 @@ async function loadDashboard() {
 
           <div class="stat-box">
             <strong>
-              ${Number(profile.points || 0)}
+              ${Number(
+                profile.points || 0
+              )}
             </strong>
             <small>Points</small>
           </div>
 
           <div class="stat-box">
             <strong>
-              ${Number(profile.streak || 0)}
+              ${Number(
+                profile.streak || 0
+              )}
             </strong>
             <small>Day streak</small>
           </div>
@@ -1611,38 +2272,47 @@ async function loadDashboard() {
               ? upcoming
                   .map(
                     (session) => `
+
                       <div class="list-item">
 
                         <strong>
-                          ${esc(session.topicA)}
+                          ${esc(
+                            session.topicA
+                          )}
                           ↔
-                          ${esc(session.topicB)}
+                          ${esc(
+                            session.topicB
+                          )}
                         </strong>
 
                         <small>
-                          ${esc(session.scheduledAt)}
-                          ·
-                          ${session.duration} min
 
-                          <button
-                            class="small-complete"
-                            data-session="${session.id}"
-                          >
-                            Mark complete
-                          </button>
+                          ${esc(
+                            session.scheduledAt
+                          )}
+
+                          ·
+
+                          ${session.duration}
+                          min
 
                         </small>
 
                       </div>
+
                     `
                   )
                   .join("")
               : `
+
                 <div class="list-item">
+
                   <small>
-                    No sessions scheduled yet.
+                    No upcoming sessions scheduled.
                   </small>
+
                 </div>
+
               `
           }
 
@@ -1662,15 +2332,20 @@ async function loadDashboard() {
               ? pendingAssignments
                   .map(
                     (assignment) => `
+
                       <div class="list-item">
 
                         <strong>
-                          ${esc(assignment.title)}
+                          ${esc(
+                            assignment.title
+                          )}
                         </strong>
 
                         <small>
+
                           ${esc(
-                            assignment.description || ""
+                            assignment.description ||
+                            ""
                           )}
 
                           <button
@@ -1683,15 +2358,20 @@ async function loadDashboard() {
                         </small>
 
                       </div>
+
                     `
                   )
                   .join("")
               : `
+
                 <div class="list-item">
+
                   <small>
                     No pending assignments.
                   </small>
+
                 </div>
+
               `
           }
 
@@ -1702,26 +2382,23 @@ async function loadDashboard() {
     `;
 
 
-    document
-      .querySelectorAll("[data-session]")
-      .forEach((button) => {
-
-        button.onclick = () =>
-          completeSession(
-            button.dataset.session
-          );
-
-      });
-
+    /*
+    =====================================================
+    ASSIGNMENTS
+    =====================================================
+    */
 
     document
-      .querySelectorAll("[data-assignment]")
+      .querySelectorAll(
+        "[data-assignment]"
+      )
       .forEach((button) => {
 
-        button.onclick = () =>
-          completeAssignment(
-            button.dataset.assignment
-          );
+        button.onclick =
+          () =>
+            completeAssignment(
+              button.dataset.assignment
+            );
 
       });
 
@@ -1734,75 +2411,381 @@ async function loadDashboard() {
     );
 
     dashboard.innerHTML = `
+
       <div class="state-card">
-        <strong>Dashboard could not load.</strong>
+
+        <strong>
+          Dashboard could not load.
+        </strong>
+
         <br><br>
-        ${esc(firebaseError(error))}
+
+        ${esc(
+          firebaseError(error)
+        )}
+
       </div>
+
     `;
 
-    toast(firebaseError(error));
+    toast(
+      firebaseError(error)
+    );
 
   }
 
 }
 
 
-/* =========================================================
-   SESSIONS / ASSIGNMENTS
-========================================================= */
+/*
+=========================================================
+DATE HELPERS
+=========================================================
+*/
 
-async function completeSession(id) {
+function parseScheduledDate(value) {
+
+  if (!value) {
+    return null;
+  }
+
+  /*
+    datetime-local normally gives:
+
+    2026-08-29T21:30
+
+    We intentionally parse it as the user's local time.
+  */
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return date;
+
+}
+
+
+/*
+=========================================================
+AUTOMATIC SESSION CHECKER
+=========================================================
+*/
+
+function startSessionTimer() {
+
+  stopSessionTimer();
+
+  /*
+    Check immediately.
+  */
+
+  checkSessions();
+
+
+  /*
+    Then check every 30 seconds.
+
+    This means the popup does not depend on
+    the user manually refreshing.
+  */
+
+  sessionTimer =
+    setInterval(
+      () => {
+
+        checkSessions();
+
+      },
+      30 * 1000
+    );
+
+}
+
+
+function stopSessionTimer() {
+
+  if (sessionTimer) {
+
+    clearInterval(
+      sessionTimer
+    );
+
+    sessionTimer = null;
+
+  }
+
+}
+
+
+/*
+=========================================================
+CHECK ALL USER SESSIONS
+=========================================================
+*/
+
+async function checkSessions() {
+
+  if (
+    !auth.currentUser ||
+    !currentUser ||
+    sessionCheckRunning
+  ) {
+    return;
+  }
+
+  sessionCheckRunning = true;
 
   try {
 
-    await updateDoc(
-      doc(db, "sessions", id),
-      {
-        status: "completed",
-        completedAt: serverTimestamp()
+    const snapshot =
+      await getDocs(
+        query(
+          collection(db, "sessions"),
+          where(
+            "userIds",
+            "array-contains",
+            auth.currentUser.uid
+          )
+        )
+      );
+
+
+    const sessions =
+      snapshot.docs
+        .map((document) => ({
+          id:
+            document.id,
+          ...document.data()
+        }));
+
+
+    const now =
+      Date.now();
+
+
+    /*
+    =====================================================
+    CHECK FOR STARTING SESSIONS
+    =====================================================
+    */
+
+    for (
+      const session
+      of sessions
+    ) {
+
+      const start =
+        parseScheduledDate(
+          session.scheduledAt
+        );
+
+      if (!start) {
+        continue;
       }
-    );
 
-    toast(
-      "Session completed. Reward points are processed by the backend."
-    );
 
-    await loadDashboard();
-    await loadWallet();
+      const startTime =
+        start.getTime();
+
+      const endTime =
+        startTime +
+        (
+          Number(
+            session.duration || 60
+          ) *
+          60 *
+          1000
+        );
+
+
+      /*
+      ===================================================
+      SESSION HAS STARTED
+      ===================================================
+      */
+
+      if (
+        now >= startTime &&
+        now < endTime &&
+        session.status !==
+          "completed"
+      ) {
+
+        const notifications =
+          session.startNotifications ||
+          {};
+
+        const alreadyShown =
+          notifications[
+            auth.currentUser.uid
+          ] === true;
+
+
+        if (!alreadyShown) {
+
+          /*
+            Mark notification as shown BEFORE
+            opening the modal.
+
+            This prevents the popup from appearing
+            repeatedly every 30 seconds.
+          */
+
+          await updateDoc(
+            doc(
+              db,
+              "sessions",
+              session.id
+            ),
+            {
+
+              [`startNotifications.${auth.currentUser.uid}`]:
+                true,
+
+              status:
+                "in_progress"
+
+            }
+          );
+
+
+          openModal(
+            "sessionStart",
+            session
+          );
+
+          /*
+            Only show one popup at a time.
+          */
+
+          break;
+
+        }
+
+      }
+
+
+      /*
+      ===================================================
+      SESSION HAS ENDED
+      ===================================================
+      */
+
+      if (
+        now >= endTime
+      ) {
+
+        const confirmations =
+          session.confirmations ||
+          {};
+
+        const myAnswer =
+          confirmations[
+            auth.currentUser.uid
+          ];
+
+
+        /*
+        If the user has NOT answered yet,
+        always ask them.
+
+        This is what makes the prompt persistent
+        even if they were offline.
+        */
+
+        if (
+          myAnswer === undefined ||
+          myAnswer === null
+        ) {
+
+          /*
+            Don't keep reopening it if another modal
+            is already open.
+          */
+
+          const backdrop =
+            $("#modalBackdrop");
+
+          const modalAlreadyOpen =
+            backdrop?.classList.contains(
+              "open"
+            );
+
+
+          if (!modalAlreadyOpen) {
+
+            openModal(
+              "sessionComplete",
+              session
+            );
+
+          }
+
+          break;
+
+        }
+
+      }
+
+    }
 
   } catch (error) {
 
     console.error(
-      "Complete session error:",
+      "Session checker error:",
       error
     );
 
-    toast(firebaseError(error));
+  } finally {
+
+    sessionCheckRunning =
+      false;
 
   }
 
 }
 
+
+/*
+=========================================================
+ASSIGNMENTS
+=========================================================
+*/
 
 async function completeAssignment(id) {
 
   try {
 
     await updateDoc(
-      doc(db, "assignments", id),
+      doc(
+        db,
+        "assignments",
+        id
+      ),
       {
-        completed: true,
-        completedAt: serverTimestamp()
+
+        completed:
+          true,
+
+        completedAt:
+          serverTimestamp()
+
       }
     );
 
     toast(
-      "Assignment completed. Reward points are processed by the backend."
+      "Assignment completed."
     );
 
     await loadDashboard();
-    await loadWallet();
 
   } catch (error) {
 
@@ -1811,23 +2794,28 @@ async function completeAssignment(id) {
       error
     );
 
-    toast(firebaseError(error));
+    toast(
+      firebaseError(error)
+    );
 
   }
 
 }
 
 
-/* =========================================================
-   WALLET
-========================================================= */
+/*
+=========================================================
+WALLET
+=========================================================
+*/
 
 async function loadWallet() {
 
   if (!currentUser) {
 
     if ($("#walletPoints"))
-      $("#walletPoints").textContent = "0";
+      $("#walletPoints").textContent =
+        "0";
 
     if ($("#walletRemaining"))
       $("#walletRemaining").textContent =
@@ -1842,7 +2830,8 @@ async function loadWallet() {
         "Not signed in";
 
     if ($("#walletProgress"))
-      $("#walletProgress").style.width = "0%";
+      $("#walletProgress").style.width =
+        "0%";
 
     return;
 
@@ -1852,8 +2841,11 @@ async function loadWallet() {
   const profile =
     currentUser.profile || {};
 
+
   const points =
-    Number(profile.points || 0);
+    Number(
+      profile.points || 0
+    );
 
 
   if ($("#walletPoints"))
@@ -1866,9 +2858,12 @@ async function loadWallet() {
     $("#walletRemaining").textContent =
       points >= 1000
         ? "Milestone unlocked"
-        : `${(
-            1000 - points
-          ).toLocaleString()} points to 1,000`;
+        : `${
+            (
+              1000 -
+              points
+            ).toLocaleString()
+          } points to 1,000`;
 
   }
 
@@ -1876,7 +2871,9 @@ async function loadWallet() {
   if ($("#walletStreak")) {
 
     $("#walletStreak").textContent =
-      `${profile.streak || 0} day streak`;
+      `${
+        profile.streak || 0
+      } day streak`;
 
   }
 
@@ -1888,21 +2885,31 @@ async function loadWallet() {
 
   if ($("#walletProgress"))
     $("#walletProgress").style.width =
-      `${Math.min(100, points / 10)}%`;
+      `${
+        Math.min(
+          100,
+          points / 10
+        )
+      }%`;
 
 }
 
 
-/* =========================================================
-   ACTIVITY
-========================================================= */
+/*
+=========================================================
+ACTIVITY
+=========================================================
+*/
 
 async function loadActivity() {
 
   const container =
     $("#activityList");
 
-  if (!container || !currentUser) {
+  if (
+    !container ||
+    !currentUser
+  ) {
     return;
   }
 
@@ -1911,7 +2918,10 @@ async function loadActivity() {
     const snapshot =
       await getDocs(
         query(
-          collection(db, "pointEvents"),
+          collection(
+            db,
+            "pointEvents"
+          ),
           where(
             "userId",
             "==",
@@ -1928,11 +2938,15 @@ async function loadActivity() {
     if (!snapshot.docs.length) {
 
       container.innerHTML = `
+
         <div class="list-item">
+
           <small>
             No reward activity yet.
           </small>
+
         </div>
+
       `;
 
       return;
@@ -1949,6 +2963,7 @@ async function loadActivity() {
             document.data();
 
           return `
+
             <div class="list-item">
 
               <strong>
@@ -1959,11 +2974,16 @@ async function loadActivity() {
               </strong>
 
               <small>
-                +${Number(event.points || 0)}
+                +${
+                  Number(
+                    event.points || 0
+                  )
+                }
                 points
               </small>
 
             </div>
+
           `;
 
         })
@@ -1978,11 +2998,15 @@ async function loadActivity() {
     );
 
     container.innerHTML = `
+
       <div class="list-item">
+
         <small>
           Could not load reward activity.
         </small>
+
       </div>
+
     `;
 
   }
@@ -1990,9 +3014,11 @@ async function loadActivity() {
 }
 
 
-/* =========================================================
-   THEME
-========================================================= */
+/*
+=========================================================
+THEME
+=========================================================
+*/
 
 function themeInit() {
 
@@ -2001,8 +3027,14 @@ function themeInit() {
       "skillswap-theme"
     );
 
-  if (saved === "light") {
-    document.body.classList.add("light");
+  if (
+    saved === "light"
+  ) {
+
+    document.body.classList.add(
+      "light"
+    );
+
   }
 
   updateThemeIcon();
@@ -2018,7 +3050,9 @@ function updateThemeIcon() {
   if (!button) return;
 
   button.textContent =
-    document.body.classList.contains("light")
+    document.body.classList.contains(
+      "light"
+    )
       ? "☾"
       : "☀";
 
@@ -2035,7 +3069,9 @@ $("#themeToggle")?.addEventListener(
 
     localStorage.setItem(
       "skillswap-theme",
-      document.body.classList.contains("light")
+      document.body.classList.contains(
+        "light"
+      )
         ? "light"
         : "dark"
     );
@@ -2049,9 +3085,11 @@ $("#themeToggle")?.addEventListener(
 themeInit();
 
 
-/* =========================================================
-   NAVIGATION
-========================================================= */
+/*
+=========================================================
+NAVIGATION
+=========================================================
+*/
 
 $("#menuBtn")?.addEventListener(
   "click",
@@ -2105,12 +3143,15 @@ $("#walletAction")?.addEventListener(
 
 $("#skillSearch")?.addEventListener(
   "input",
-  () => loadSkills()
+  () =>
+    loadSkills()
 );
 
 
 document
-  .querySelectorAll("[data-scroll]")
+  .querySelectorAll(
+    "[data-scroll]"
+  )
   .forEach((button) => {
 
     button.onclick = () => {
@@ -2129,9 +3170,11 @@ document
   });
 
 
-/* =========================================================
-   AUTH STATE
-========================================================= */
+/*
+=========================================================
+AUTH STATE
+=========================================================
+*/
 
 onAuthStateChanged(
   auth,
@@ -2144,26 +3187,37 @@ onAuthStateChanged(
         : "Logged out"
     );
 
-    currentUser = user;
 
-    updateNavigation(user);
+    currentUser =
+      user;
+
+
+    updateNavigation(
+      user
+    );
 
 
     if (unsubscribeProfile) {
 
       unsubscribeProfile();
 
-      unsubscribeProfile = null;
+      unsubscribeProfile =
+        null;
 
     }
 
 
     if (!user) {
 
-      currentUser = null;
+      currentUser =
+        null;
+
+      stopSessionTimer();
 
       await loadSkills();
+
       await loadDashboard();
+
       await loadWallet();
 
       return;
@@ -2174,7 +3228,11 @@ onAuthStateChanged(
     try {
 
       const profileReference =
-        doc(db, "users", user.uid);
+        doc(
+          db,
+          "users",
+          user.uid
+        );
 
 
       unsubscribeProfile =
@@ -2187,7 +3245,8 @@ onAuthStateChanged(
 
               currentUser = {
                 ...user,
-                profile: snapshot.data()
+                profile:
+                  snapshot.data()
               };
 
               console.log(
@@ -2210,8 +3269,25 @@ onAuthStateChanged(
 
 
             await loadSkills();
+
             await loadDashboard();
+
             await loadWallet();
+
+
+            /*
+            =================================================
+            IMPORTANT:
+            Start the session checker whenever the user
+            is logged in.
+
+            Therefore, if they were OFFLINE during the
+            meeting, the checker runs immediately after
+            login and asks the completion question.
+            =================================================
+            */
+
+            startSessionTimer();
 
           },
 
@@ -2223,7 +3299,9 @@ onAuthStateChanged(
             );
 
             toast(
-              `Profile error: ${firebaseError(error)}`
+              `Profile error: ${
+                firebaseError(error)
+              }`
             );
 
           }
