@@ -3,7 +3,7 @@
 - [Y] Create Firebase project
 - [Y] Enable Email/Password Authentication
 - [Y] Create Firestore database
-- [ ] Paste Firebase web config into `public/firebase-config.js`
+- [Y] Paste Firebase web config into `public/firebase-config.js`
 - [ ] Install Firebase CLI
 - [ ] `firebase login`
 - [ ] `firebase use --add`

@@ -468,10 +468,10 @@ function renderModal(type, data = {}) {
         </div>
 
         <div class="field">
-          <label>Assignment details</label>
+          <label>Contact Details</label>
           <textarea
-            id="assignmentDescription"
-            placeholder="Optional instructions"
+            id="ContactDetails"
+            placeholder="Please Type in you contact details here, such as your email or phone number, so your partner can reach you."
           ></textarea>
         </div>
 
