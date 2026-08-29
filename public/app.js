@@ -1,4 +1,5 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-app.js";
+
 import {
   getAuth,
   onAuthStateChanged,
@@ -18,10 +19,10 @@ import {
   updateDoc,
   query,
   where,
-  orderBy,
   getDocs,
   serverTimestamp,
-  onSnapshot
+  onSnapshot,
+  runTransaction
 } from "https://www.gstatic.com/firebasejs/12.1.0/firebase-firestore.js";
 
 import { firebaseConfig } from "./firebase-config.js";
@@ -32,13 +33,6 @@ const db = getFirestore(app);
 
 let currentUser = null;
 let unsubscribeProfile = null;
-
-/*
-=========================================================
-SESSION TIMER
-=========================================================
-*/
-
 let sessionTimer = null;
 let sessionCheckRunning = false;
 
@@ -46,12 +40,7 @@ const $ = (selector) => document.querySelector(selector);
 
 const getValue = (selector, fallback = "") => {
   const element = $(selector);
-
-  if (!element) {
-    console.warn(`Element not found: ${selector}`);
-    return fallback;
-  }
-
+  if (!element) return fallback;
   return element.value ?? fallback;
 };
 
@@ -64,7 +53,10 @@ const esc = (value) => {
     '"': "&quot;"
   };
 
-  return String(value ?? "").replace(/[&<>'"]/g, (char) => replacements[char] ?? char);
+  return String(value ?? "").replace(
+    /[&<>'"]/g,
+    (char) => replacements[char] ?? char
+  );
 };
 
 const split = (value) =>
@@ -85,7 +77,6 @@ const initials = (name) => {
   return result || "U";
 };
 
-
 function toast(message) {
   const element = $("#toast");
   if (!element) return;
@@ -98,6 +89,49 @@ function toast(message) {
   }, 2800);
 }
 
+function firebaseError(error) {
+  const messages = {
+    "auth/invalid-credential":
+      "Incorrect email or password.",
+
+    "auth/invalid-login-credentials":
+      "Incorrect email or password.",
+
+    "auth/email-already-in-use":
+      "That email is already registered.",
+
+    "auth/invalid-email":
+      "Please enter a valid email address.",
+
+    "auth/weak-password":
+      "Password must be at least 6 characters.",
+
+    "auth/user-not-found":
+      "No account exists with that email.",
+
+    "auth/wrong-password":
+      "Incorrect password.",
+
+    "auth/too-many-requests":
+      "Too many attempts. Please try again later.",
+
+    "auth/network-request-failed":
+      "Network error. Check your internet connection.",
+
+    "permission-denied":
+      "Firebase denied this action. Check your Firestore rules.",
+
+    "failed-precondition":
+      "Firebase needs an index or configuration is incomplete."
+  };
+
+  if (error?.code && messages[error.code]) {
+    return messages[error.code];
+  }
+
+  return error?.message ||
+    "Something went wrong. Please try again.";
+}
 
 function showError(element, error) {
   if (!element) return;
@@ -112,38 +146,9 @@ function showError(element, error) {
 }
 
 
-function firebaseError(error) {
-  const messages = {
-    "auth/invalid-credential": "Incorrect email or password.",
-    "auth/invalid-login-credentials": "Incorrect email or password.",
-    "auth/email-already-in-use": "That email is already registered.",
-    "auth/invalid-email": "Please enter a valid email address.",
-    "auth/weak-password": "Password must be at least 6 characters.",
-    "auth/user-not-found": "No account exists with that email.",
-    "auth/wrong-password": "Incorrect password.",
-    "auth/too-many-requests": "Too many attempts. Please try again later.",
-    "auth/network-request-failed": "Network error. Check your internet connection.",
-    "permission-denied": "Firebase denied this action. Check your Firestore rules.",
-    "failed-precondition": "Firebase needs an index or configuration is incomplete."
-  };
-
-  if (error?.code && messages[error.code]) {
-    return messages[error.code];
-  }
-
-  if (error?.message) {
-    return error.message;
-  }
-
-  return "Something went wrong. Please try again.";
-}
-
-
-/*
-=========================================================
-MODALS
-=========================================================
-*/
+/* =====================================================
+   MODAL SYSTEM
+===================================================== */
 
 function openModal(type, data = {}) {
   const backdrop = $("#modalBackdrop");
@@ -156,7 +161,6 @@ function openModal(type, data = {}) {
   renderModal(type, data);
 }
 
-
 function closeModal() {
   const backdrop = $("#modalBackdrop");
 
@@ -166,40 +170,51 @@ function closeModal() {
   backdrop.setAttribute("aria-hidden", "true");
 }
 
-
 window.openModal = openModal;
 window.closeModal = closeModal;
 
-$("#modalClose")?.addEventListener("click", closeModal);
+$("#modalClose")?.addEventListener(
+  "click",
+  closeModal
+);
 
-$("#modalBackdrop")?.addEventListener("click", (event) => {
-  if (event.target.id === "modalBackdrop") {
-    closeModal();
+$("#modalBackdrop")?.addEventListener(
+  "click",
+  (event) => {
+    if (event.target.id === "modalBackdrop") {
+      closeModal();
+    }
   }
-});
+);
 
+
+/* =====================================================
+   MODAL RENDER
+===================================================== */
 
 function renderModal(type, data = {}) {
+
   const container = $("#modalContent");
 
   if (!container) return;
 
 
-  /*
-  =========================================================
-  LOGIN
-  =========================================================
-  */
+  /* LOGIN */
 
   if (type === "login") {
+
     container.innerHTML = `
       <h2>Welcome back</h2>
-      <p>Sign in to manage your SkillSwap profile and learning activity.</p>
+
+      <p>
+        Sign in to manage your SkillSwap profile.
+      </p>
 
       <form class="form" id="authForm">
 
         <div class="field">
           <label>Email</label>
+
           <input
             id="email"
             type="email"
@@ -210,6 +225,7 @@ function renderModal(type, data = {}) {
 
         <div class="field">
           <label>Password</label>
+
           <input
             id="password"
             type="password"
@@ -220,13 +236,18 @@ function renderModal(type, data = {}) {
 
         <div id="formError"></div>
 
-        <button class="btn primary" type="submit">
+        <button
+          class="btn primary"
+          type="submit"
+        >
           Log in
         </button>
 
         <div class="helper">
           New here?
-          <a href="#" id="switchAuth">Create an account</a>
+          <a href="#" id="switchAuth">
+            Create an account
+          </a>
         </div>
 
       </form>
@@ -234,16 +255,17 @@ function renderModal(type, data = {}) {
   }
 
 
-  /*
-  =========================================================
-  SIGNUP
-  =========================================================
-  */
+  /* SIGNUP */
 
   if (type === "signup") {
+
     container.innerHTML = `
       <h2>Create your profile</h2>
-      <p>Tell the community what you can teach and what you want to learn.</p>
+
+      <p>
+        Tell the community what you can teach
+        and what you want to learn.
+      </p>
 
       <form class="form" id="authForm">
 
@@ -251,6 +273,7 @@ function renderModal(type, data = {}) {
 
           <div class="field">
             <label>Name</label>
+
             <input
               id="name"
               required
@@ -260,6 +283,7 @@ function renderModal(type, data = {}) {
 
           <div class="field">
             <label>Email</label>
+
             <input
               id="email"
               type="email"
@@ -274,6 +298,7 @@ function renderModal(type, data = {}) {
 
           <div class="field">
             <label>Password</label>
+
             <input
               id="password"
               type="password"
@@ -285,121 +310,22 @@ function renderModal(type, data = {}) {
 
           <div class="field">
             <label>Availability</label>
-            <select id="availability">
-              <option>Weekday mornings</option>
-              <option>Weekday evenings</option>
-              <option>Weekends</option>
-              <option>Flexible</option>
-            </select>
-          </div>
 
-        </div>
-
-        <div class="form-grid">
-
-          <div class="field">
-            <label>Skills you can teach</label>
-            <input
-              id="teach"
-              placeholder="Java, Excel, Figma"
-              required
-            >
-          </div>
-
-          <div class="field">
-            <label>Skills you want to learn</label>
-            <input
-              id="learn"
-              placeholder="Python, UI/UX"
-              required
-            >
-          </div>
-
-        </div>
-
-        <div class="field">
-          <label>About you</label>
-          <textarea
-            id="bio"
-            placeholder="A short introduction..."
-          ></textarea>
-        </div>
-
-        <div id="formError"></div>
-
-        <button class="btn primary" type="submit">
-          Create free profile
-        </button>
-
-        <div class="helper">
-          Already have an account?
-          <a href="#" id="switchAuth">Log in</a>
-        </div>
-
-      </form>
-    `;
-  }
-
-
-  /*
-  =========================================================
-  PROFILE
-  =========================================================
-  */
-
-  if (type === "profile") {
-    const profile = currentUser?.profile || {};
-
-    container.innerHTML = `
-      <h2>Edit profile</h2>
-      <p>Keep your availability and skill exchange preferences current.</p>
-
-      <form class="form" id="profileForm">
-
-        <div class="form-grid">
-
-          <div class="field">
-            <label>Name</label>
-            <input
-              id="name"
-              value="${esc(profile.name)}"
-              required
-            >
-          </div>
-
-          <div class="field">
-            <label>Availability</label>
             <select id="availability">
 
-              <option ${
-                profile.availability === "Weekday mornings"
-                  ? "selected"
-                  : ""
-              }>
+              <option>
                 Weekday mornings
               </option>
 
-              <option ${
-                profile.availability === "Weekday evenings"
-                  ? "selected"
-                  : ""
-              }>
+              <option>
                 Weekday evenings
               </option>
 
-              <option ${
-                profile.availability === "Weekends"
-                  ? "selected"
-                  : ""
-              }>
+              <option>
                 Weekends
               </option>
 
-              <option ${
-                profile.availability === "Flexible"
-                  ? "selected"
-                  : ""
-              }>
+              <option>
                 Flexible
               </option>
 
@@ -411,19 +337,25 @@ function renderModal(type, data = {}) {
         <div class="form-grid">
 
           <div class="field">
-            <label>Skills you can teach</label>
+            <label>
+              Skills you can teach
+            </label>
+
             <input
               id="teach"
-              value="${esc((profile.teach || []).join(", "))}"
+              placeholder="Java, Excel, Figma"
               required
             >
           </div>
 
           <div class="field">
-            <label>Skills you want to learn</label>
+            <label>
+              Skills you want to learn
+            </label>
+
             <input
               id="learn"
-              value="${esc((profile.learn || []).join(", "))}"
+              placeholder="Python, UI/UX"
               required
             >
           </div>
@@ -431,13 +363,182 @@ function renderModal(type, data = {}) {
         </div>
 
         <div class="field">
+
           <label>About you</label>
-          <textarea id="bio">${esc(profile.bio || "")}</textarea>
+
+          <textarea
+            id="bio"
+            placeholder="A short introduction..."
+          ></textarea>
+
         </div>
 
         <div id="formError"></div>
 
-        <button class="btn primary" type="submit">
+        <button
+          class="btn primary"
+          type="submit"
+        >
+          Create free profile
+        </button>
+
+        <div class="helper">
+
+          Already have an account?
+
+          <a href="#" id="switchAuth">
+            Log in
+          </a>
+
+        </div>
+
+      </form>
+    `;
+  }
+
+
+  /* PROFILE */
+
+  if (type === "profile") {
+
+    const profile =
+      currentUser?.profile || {};
+
+    container.innerHTML = `
+
+      <h2>Edit profile</h2>
+
+      <p>
+        Keep your information up to date.
+      </p>
+
+      <form
+        class="form"
+        id="profileForm"
+      >
+
+        <div class="form-grid">
+
+          <div class="field">
+
+            <label>Name</label>
+
+            <input
+              id="name"
+              value="${esc(profile.name)}"
+              required
+            >
+
+          </div>
+
+          <div class="field">
+
+            <label>Availability</label>
+
+            <select id="availability">
+
+              <option
+                ${
+                  profile.availability ===
+                  "Weekday mornings"
+                    ? "selected"
+                    : ""
+                }
+              >
+                Weekday mornings
+              </option>
+
+              <option
+                ${
+                  profile.availability ===
+                  "Weekday evenings"
+                    ? "selected"
+                    : ""
+                }
+              >
+                Weekday evenings
+              </option>
+
+              <option
+                ${
+                  profile.availability ===
+                  "Weekends"
+                    ? "selected"
+                    : ""
+                }
+              >
+                Weekends
+              </option>
+
+              <option
+                ${
+                  profile.availability ===
+                  "Flexible"
+                    ? "selected"
+                    : ""
+                }
+              >
+                Flexible
+              </option>
+
+            </select>
+
+          </div>
+
+        </div>
+
+        <div class="form-grid">
+
+          <div class="field">
+
+            <label>
+              Skills you can teach
+            </label>
+
+            <input
+              id="teach"
+              value="${esc(
+                (profile.teach || []).join(", ")
+              )}"
+              required
+            >
+
+          </div>
+
+          <div class="field">
+
+            <label>
+              Skills you want to learn
+            </label>
+
+            <input
+              id="learn"
+              value="${esc(
+                (profile.learn || []).join(", ")
+              )}"
+              required
+            >
+
+          </div>
+
+        </div>
+
+        <div class="field">
+
+          <label>About you</label>
+
+          <textarea id="bio">${esc(
+            profile.bio || ""
+          )}</textarea>
+
+        </div>
+
+        <div id="formError"></div>
+
+        <button
+          class="btn primary"
+          type="submit"
+        >
           Save changes
         </button>
 
@@ -446,102 +547,126 @@ function renderModal(type, data = {}) {
   }
 
 
-  /*
-  =========================================================
-  SCHEDULE SESSION
-  =========================================================
-  */
+  /* CREATE SESSION */
 
   if (type === "session") {
+
     container.innerHTML = `
+
       <h2>Schedule a session</h2>
 
       <p>
-        Set a clear topic and leave enough detail for both people to prepare.
+        Create a session request with your
+        SkillSwap partner.
       </p>
 
-      <form class="form" id="sessionForm">
+      <form
+        class="form"
+        id="sessionForm"
+      >
 
-        <div class="profile-preview">
+        <div class="field">
 
-          <div class="member-avatar">
-            ${initials(data.name)}
-          </div>
+          <label>Date and time</label>
 
-          <div>
-            <strong>${esc(data.name)}</strong>
-            <small>
-              ${esc((data.teach || []).join(" · "))}
-            </small>
-          </div>
+          <input
+            id="scheduledAt"
+            type="datetime-local"
+            required
+          >
 
         </div>
 
-        <div class="form-grid">
+        <div class="field">
 
-          <div class="field">
-            <label>Date & time</label>
-            <input
-              id="scheduledAt"
-              type="datetime-local"
-              required
+          <label>Duration</label>
+
+          <select id="duration">
+
+            <option value="30">
+              30 minutes
+            </option>
+
+            <option
+              value="60"
+              selected
             >
-          </div>
+              60 minutes
+            </option>
 
-          <div class="field">
-            <label>Duration</label>
-            <select id="duration">
-              <option value="30">30 minutes</option>
-              <option value="60" selected>60 minutes</option>
-              <option value="90">90 minutes</option>
-              <option value="120">120 minutes</option>
-            </select>
-          </div>
+            <option value="90">
+              90 minutes
+            </option>
+
+            <option value="120">
+              120 minutes
+            </option>
+
+          </select>
 
         </div>
 
         <div class="form-grid">
 
           <div class="field">
+
             <label>Your topic</label>
+
             <input
               id="topicA"
               required
               placeholder="What will you teach?"
             >
+
           </div>
 
           <div class="field">
+
             <label>Partner topic</label>
+
             <input
               id="topicB"
               required
               placeholder="What will they teach?"
             >
+
           </div>
 
         </div>
 
         <div class="field">
-          <label>Assignment for next session</label>
+
+          <label>
+            Assignment for next session
+          </label>
+
           <input
             id="assignmentTitle"
             placeholder="Optional task"
           >
+
         </div>
 
         <div class="field">
-          <label>Contact Details</label>
+
+          <label>
+            Your contact details
+          </label>
+
           <textarea
             id="ContactDetails"
-            placeholder="Please type your contact details here, such as your email or phone number, so your partner can reach you."
+            placeholder="Email, phone number, Instagram, etc."
           ></textarea>
+
         </div>
 
         <div id="formError"></div>
 
-        <button class="btn primary" type="submit">
-          Create session
+        <button
+          class="btn primary"
+          type="submit"
+        >
+          Send session request
         </button>
 
       </form>
@@ -549,45 +674,300 @@ function renderModal(type, data = {}) {
   }
 
 
-  /*
-  =========================================================
-  SESSION START POPUP
-  =========================================================
-  */
+  /* SESSION REQUEST */
 
-  if (type === "sessionStart") {
+  if (type === "sessionRequest") {
 
     container.innerHTML = `
+
       <div class="session-popup">
 
-        <div style="font-size:42px;margin-bottom:10px;">
+        <div
+          style="
+            font-size:42px;
+            margin-bottom:10px;
+          "
+        >
           🤝
         </div>
 
-        <h2>It's time to meet!</h2>
+        <h2>
+          Approve Session?
+        </h2>
 
         <p>
-          Your SkillSwap session is starting now.
-        </p>
-
-        <div class="state-card" style="margin:20px 0;text-align:left;">
 
           <strong>
-            ${esc(data.topicA || "Skill exchange")}
+            ${esc(
+              data.requesterName ||
+              "A SkillSwap member"
+            )}
           </strong>
+
+          wants to schedule a session
+          with you.
+
+        </p>
+
+        <div
+          class="state-card"
+          style="
+            margin:20px 0;
+            text-align:left;
+          "
+        >
+
+          <strong>
+            ${esc(
+              data.topicA ||
+              "Skill exchange"
+            )}
+          </strong>
+
+          <br><br>
+
+          <small>
+            📅
+            ${esc(
+              formatSessionDate(
+                data.scheduledAt
+              )
+            )}
+          </small>
 
           <br>
 
           <small>
-            ${esc(data.topicB || "")}
+            ⏱
+            ${Number(
+              data.duration || 60
+            )}
+            minutes
           </small>
 
           <br><br>
 
           <small>
-            Contact your partner using the contact details
-            provided for this session.
+            ${esc(
+              data.topicB || ""
+            )}
           </small>
+
+        </div>
+
+        <div
+          style="
+            display:grid;
+            grid-template-columns:
+              1fr 1fr;
+            gap:12px;
+          "
+        >
+
+          <button
+            class="btn primary"
+            id="approveSession"
+          >
+            ✓ Approve
+          </button>
+
+          <button
+            class="btn outline"
+            id="rejectSession"
+          >
+            ✕ Reject
+          </button>
+
+        </div>
+
+      </div>
+    `;
+  }
+
+
+  /* SESSION DETAILS */
+
+  if (type === "sessionDetails") {
+
+    container.innerHTML = `
+
+      <div class="session-popup">
+
+        <div
+          style="
+            font-size:42px;
+            margin-bottom:10px;
+          "
+        >
+          👤
+        </div>
+
+        <h2>
+          Session Details
+        </h2>
+
+        <p>
+
+          Session with
+
+          <strong>
+            ${esc(
+              data.partnerName ||
+              "SkillSwap member"
+            )}
+          </strong>
+
+        </p>
+
+        <div
+          class="state-card"
+          style="
+            margin:20px 0;
+            text-align:left;
+          "
+        >
+
+          <strong>
+            ${esc(
+              data.topicA ||
+              "Skill exchange"
+            )}
+          </strong>
+
+          <br><br>
+
+          <small>
+            📅
+            ${esc(
+              formatSessionDate(
+                data.scheduledAt
+              )
+            )}
+          </small>
+
+          <br>
+
+          <small>
+            ⏱
+            ${Number(
+              data.duration || 60
+            )}
+            minutes
+          </small>
+
+          <br><br>
+
+          <strong>
+            Contact Information
+          </strong>
+
+          <br><br>
+
+          <div
+            style="
+              white-space:pre-wrap;
+            "
+          >
+            ${esc(
+              data.contactDetails ||
+              "No contact information was provided."
+            )}
+          </div>
+
+        </div>
+
+        <button
+          class="btn primary"
+          id="closeSessionDetails"
+        >
+          Close
+        </button>
+
+      </div>
+    `;
+  }
+
+
+  /* SESSION START */
+
+  if (type === "sessionStart") {
+
+    container.innerHTML = `
+
+      <div class="session-popup">
+
+        <div
+          style="
+            font-size:42px;
+            margin-bottom:10px;
+          "
+        >
+          🔔
+        </div>
+
+        <h2>
+          Your session is starting!
+        </h2>
+
+        <p>
+          It's time to contact your
+          SkillSwap partner.
+        </p>
+
+        <div
+          class="state-card"
+          style="
+            margin:20px 0;
+            text-align:left;
+          "
+        >
+
+          <strong>
+            ${esc(
+              data.topicA ||
+              "Skill exchange"
+            )}
+          </strong>
+
+          <br><br>
+
+          <small>
+            📅
+            ${esc(
+              formatSessionDate(
+                data.scheduledAt
+              )
+            )}
+          </small>
+
+          <br>
+
+          <small>
+            ⏱
+            ${Number(
+              data.duration || 60
+            )}
+            minutes
+          </small>
+
+          <br><br>
+
+          <strong>
+            Contact information
+          </strong>
+
+          <br><br>
+
+          <div
+            style="
+              white-space:pre-wrap;
+            "
+          >
+            ${esc(
+              data.contactDetails ||
+              "No contact information was provided."
+            )}
+          </div>
 
         </div>
 
@@ -603,45 +983,101 @@ function renderModal(type, data = {}) {
   }
 
 
-  /*
-  =========================================================
-  SESSION COMPLETION POPUP
-  =========================================================
-  */
+  /* SESSION COMPLETION */
 
   if (type === "sessionComplete") {
 
+    const uid =
+      auth.currentUser?.uid;
+
+    const myConfirmation =
+      data.confirmations?.[uid];
+
+    const partnerId =
+      data.userIds?.find(
+        (id) => id !== uid
+      );
+
+    const partnerConfirmation =
+      partnerId
+        ? data.confirmations?.[partnerId]
+        : null;
+
     container.innerHTML = `
+
       <div class="session-popup">
 
-        <div style="font-size:42px;margin-bottom:10px;">
+        <div
+          style="
+            font-size:42px;
+            margin-bottom:10px;
+          "
+        >
           ⏰
         </div>
 
-        <h2>How did your meeting go?</h2>
+        <h2>
+          Did you complete the session?
+        </h2>
 
         <p>
-          Your scheduled SkillSwap session has ended.
+          Your SkillSwap session has ended.
         </p>
 
-        <div class="state-card" style="margin:20px 0;text-align:left;">
+        <div
+          class="state-card"
+          style="
+            margin:20px 0;
+            text-align:left;
+          "
+        >
 
           <strong>
-            ${esc(data.topicA || "Skill exchange")}
+            ${esc(
+              data.topicA ||
+              "Skill exchange"
+            )}
           </strong>
+
+          <br><br>
+
+          <small>
+
+            Your confirmation:
+
+            ${
+              myConfirmation === true
+                ? "✓ Completed"
+                : myConfirmation === false
+                  ? "✕ Not completed"
+                  : "Waiting"
+            }
+
+          </small>
 
           <br>
 
           <small>
-            ${esc(data.topicB || "")}
+
+            Partner:
+
+            ${
+              partnerConfirmation === true
+                ? "✓ Confirmed"
+                : partnerConfirmation === false
+                  ? "✕ Did not complete"
+                  : "Waiting"
+            }
+
           </small>
 
           <br><br>
 
           <small>
-            Your reward will only be released when
-            <strong>both you and your partner</strong>
-            confirm that the meeting was completed.
+            Points are awarded only when
+            <strong>
+              both users confirm completion.
+            </strong>
           </small>
 
         </div>
@@ -649,7 +1085,8 @@ function renderModal(type, data = {}) {
         <div
           style="
             display:grid;
-            grid-template-columns:1fr 1fr;
+            grid-template-columns:
+              1fr 1fr;
             gap:12px;
           "
         >
@@ -658,7 +1095,7 @@ function renderModal(type, data = {}) {
             class="btn primary"
             id="sessionYes"
           >
-            ✓ Yes, we completed it
+            ✓ Yes, completed
           </button>
 
           <button
@@ -675,28 +1112,35 @@ function renderModal(type, data = {}) {
   }
 
 
-  /*
-  =========================================================
-  REDEEM
-  =========================================================
-  */
+  /* REDEEM */
 
   if (type === "redeem") {
+
     container.innerHTML = `
-      <h2>Reward milestone</h2>
+
+      <h2>
+        Reward milestone
+      </h2>
 
       <p>
-        Once your wallet reaches 1,000 points, you can record
+        Once your wallet reaches
+        1,000 points, you can record
         a redemption request.
       </p>
 
       <div class="form">
 
-        <button class="btn primary" data-redeem="cash">
+        <button
+          class="btn primary"
+          data-redeem="cash"
+        >
           Request cash redemption
         </button>
 
-        <button class="btn outline" data-redeem="course">
+        <button
+          class="btn outline"
+          data-redeem="course"
+        >
           Use as course discount
         </button>
 
@@ -705,20 +1149,27 @@ function renderModal(type, data = {}) {
   }
 
 
-  /*
-  =========================================================
-  ACTIVITY
-  =========================================================
-  */
+  /* ACTIVITY */
 
   if (type === "activity") {
-    container.innerHTML = `
-      <h2>Reward activity</h2>
-      <p>Your latest point events.</p>
 
-      <div id="activityList" class="list">
+    container.innerHTML = `
+
+      <h2>
+        Reward activity
+      </h2>
+
+      <p>
+        Your latest point events.
+      </p>
+
+      <div
+        id="activityList"
+        class="list"
+      >
         Loading…
       </div>
+
     `;
   }
 
@@ -727,420 +1178,506 @@ function renderModal(type, data = {}) {
 }
 
 
-/*
-=========================================================
-MODAL BINDINGS
-=========================================================
-*/
+/* =====================================================
+   MODAL BINDINGS
+===================================================== */
 
 function bindModal(type, data) {
 
-  $("#switchAuth")?.addEventListener("click", (event) => {
+  $("#switchAuth")?.addEventListener(
+    "click",
+    (event) => {
 
-    event.preventDefault();
+      event.preventDefault();
 
-    openModal(
-      type === "login"
-        ? "signup"
-        : "login"
-    );
+      openModal(
+        type === "login"
+          ? "signup"
+          : "login"
+      );
 
-  });
-
-
-  /*
-  =========================================================
-  AUTH
-  =========================================================
-  */
-
-  $("#authForm")?.addEventListener("submit", async (event) => {
-
-    event.preventDefault();
-
-    const errorElement = $("#formError");
-
-    if (errorElement) {
-      errorElement.innerHTML = "";
     }
+  );
 
-    try {
 
-      if (type === "login") {
+  /* AUTH */
 
-        const email = getValue("#email").trim();
-        const password = getValue("#password");
+  $("#authForm")?.addEventListener(
+    "submit",
+    async (event) => {
 
-        await signInWithEmailAndPassword(
-          auth,
-          email,
-          password
-        );
+      event.preventDefault();
 
-        closeModal();
+      const errorElement =
+        $("#formError");
 
-        toast("Signed in successfully.");
+      if (errorElement) {
+        errorElement.innerHTML = "";
+      }
 
-      } else {
+      try {
 
-        const name = getValue("#name").trim();
-        const email = getValue("#email").trim();
-        const password = getValue("#password");
+        if (type === "login") {
 
-        const teach = split(getValue("#teach"));
-        const learn = split(getValue("#learn"));
+          const email =
+            getValue("#email").trim();
 
-        const credential =
-          await createUserWithEmailAndPassword(
+          const password =
+            getValue("#password");
+
+          await signInWithEmailAndPassword(
             auth,
             email,
             password
           );
 
+          closeModal();
+
+          toast(
+            "Signed in successfully."
+          );
+
+        } else {
+
+          const name =
+            getValue("#name").trim();
+
+          const email =
+            getValue("#email").trim();
+
+          const password =
+            getValue("#password");
+
+          const teach =
+            split(
+              getValue("#teach")
+            );
+
+          const learn =
+            split(
+              getValue("#learn")
+            );
+
+          const credential =
+            await createUserWithEmailAndPassword(
+              auth,
+              email,
+              password
+            );
+
+          await updateProfile(
+            credential.user,
+            {
+              displayName: name
+            }
+          );
+
+          await setDoc(
+            doc(
+              db,
+              "users",
+              credential.user.uid
+            ),
+            {
+
+              name,
+
+              email:
+                credential.user.email,
+
+              teach,
+
+              learn,
+
+              availability:
+                getValue("#availability"),
+
+              bio:
+                getValue("#bio").trim(),
+
+              points: 0,
+
+              streak: 0,
+
+              lastActivity: null,
+
+              createdAt:
+                serverTimestamp()
+
+            }
+          );
+
+          closeModal();
+
+          toast(
+            "Profile created successfully."
+          );
+        }
+
+      } catch (error) {
+
+        showError(
+          errorElement,
+          error
+        );
+
+      }
+
+    }
+  );
+
+
+  /* PROFILE */
+
+  $("#profileForm")?.addEventListener(
+    "submit",
+    async (event) => {
+
+      event.preventDefault();
+
+      const errorElement =
+        $("#formError");
+
+      if (errorElement) {
+        errorElement.innerHTML = "";
+      }
+
+      if (!auth.currentUser) {
+
+        toast(
+          "Please log in first."
+        );
+
+        closeModal();
+
+        return;
+      }
+
+      try {
+
+        const uid =
+          auth.currentUser.uid;
+
+        const name =
+          getValue("#name").trim();
+
+        await updateDoc(
+          doc(
+            db,
+            "users",
+            uid
+          ),
+          {
+
+            name,
+
+            teach:
+              split(
+                getValue("#teach")
+              ),
+
+            learn:
+              split(
+                getValue("#learn")
+              ),
+
+            availability:
+              getValue("#availability"),
+
+            bio:
+              getValue("#bio").trim()
+
+          }
+        );
+
         await updateProfile(
-          credential.user,
+          auth.currentUser,
           {
             displayName: name
           }
         );
 
-        await setDoc(
-          doc(db, "users", credential.user.uid),
-          {
-            name,
-            email: credential.user.email,
-            teach,
-            learn,
-            availability: getValue("#availability"),
-            bio: getValue("#bio").trim(),
+        closeModal();
 
-            points: 0,
-            streak: 0,
-            lastActivity: null,
-
-            createdAt: serverTimestamp()
-          }
+        toast(
+          "Profile updated successfully."
         );
+
+      } catch (error) {
+
+        showError(
+          errorElement,
+          error
+        );
+
+      }
+
+    }
+  );
+
+
+  /* CREATE SESSION */
+
+  $("#sessionForm")?.addEventListener(
+    "submit",
+    async (event) => {
+
+      event.preventDefault();
+
+      const errorElement =
+        $("#formError");
+
+      if (errorElement) {
+        errorElement.innerHTML = "";
+      }
+
+      if (!auth.currentUser) {
+
+        toast(
+          "Please log in first."
+        );
+
+        return;
+      }
+
+      try {
+
+        const scheduledAt =
+          getValue(
+            "#scheduledAt"
+          ).trim();
+
+        const duration =
+          Number(
+            getValue(
+              "#duration",
+              "60"
+            )
+          );
+
+        const topicA =
+          getValue(
+            "#topicA"
+          ).trim();
+
+        const topicB =
+          getValue(
+            "#topicB"
+          ).trim();
+
+        const assignmentTitle =
+          getValue(
+            "#assignmentTitle"
+          ).trim();
+
+        const contactDetails =
+          getValue(
+            "#ContactDetails"
+          ).trim();
+
+
+        if (!scheduledAt) {
+
+          toast(
+            "Please choose a date and time."
+          );
+
+          return;
+        }
+
+        if (!topicA) {
+
+          toast(
+            "Please enter your topic."
+          );
+
+          return;
+        }
+
+        if (!topicB) {
+
+          toast(
+            "Please enter your partner's topic."
+          );
+
+          return;
+        }
+
+        if (!data?.id) {
+
+          toast(
+            "The selected partner could not be found."
+          );
+
+          return;
+        }
+
+
+        const sessionReference =
+          await addDoc(
+            collection(
+              db,
+              "sessions"
+            ),
+            {
+
+              userIds: [
+                auth.currentUser.uid,
+                data.id
+              ],
+
+              createdBy:
+                auth.currentUser.uid,
+
+              partnerId:
+                data.id,
+
+              scheduledAt,
+
+              duration,
+
+              topicA,
+
+              topicB,
+
+              contactDetails,
+
+              status:
+                "pending",
+
+              confirmations: {
+
+                [auth.currentUser.uid]:
+                  null,
+
+                [data.id]:
+                  null
+
+              },
+
+              startNotifications: {
+
+                [auth.currentUser.uid]:
+                  false,
+
+                [data.id]:
+                  false
+
+              },
+
+              rewardStatus:
+                "waiting",
+
+              pointsAwarded:
+                false,
+
+              createdAt:
+                serverTimestamp()
+
+            }
+          );
+
+
+        if (assignmentTitle) {
+
+          await addDoc(
+            collection(
+              db,
+              "assignments"
+            ),
+            {
+
+              sessionId:
+                sessionReference.id,
+
+              userId:
+                auth.currentUser.uid,
+
+              partnerId:
+                data.id,
+
+              title:
+                assignmentTitle,
+
+              description:
+                "",
+
+              completed:
+                false,
+
+              createdAt:
+                serverTimestamp()
+
+            }
+          );
+        }
+
 
         closeModal();
 
-        toast("Profile created successfully.");
+        toast(
+          "Session request sent."
+        );
 
-      }
+        await loadDashboard();
 
-    } catch (error) {
-
-      showError(errorElement, error);
-
-    }
-
-  });
-
-
-  /*
-  =========================================================
-  PROFILE
-  =========================================================
-  */
-
-  $("#profileForm")?.addEventListener("submit", async (event) => {
-
-    event.preventDefault();
-
-    const errorElement = $("#formError");
-
-    if (errorElement) {
-      errorElement.innerHTML = "";
-    }
-
-    if (!auth.currentUser) {
-
-      toast("Please log in first.");
-
-      closeModal();
-
-      return;
-
-    }
-
-    try {
-
-      const uid = auth.currentUser.uid;
-      const name = getValue("#name").trim();
-
-      await updateDoc(
-        doc(db, "users", uid),
-        {
-          name,
-          teach: split(getValue("#teach")),
-          learn: split(getValue("#learn")),
-          availability: getValue("#availability"),
-          bio: getValue("#bio").trim()
-        }
-      );
-
-      await updateProfile(
-        auth.currentUser,
-        {
-          displayName: name
-        }
-      );
-
-      closeModal();
-
-      toast("Profile updated successfully.");
-
-      await refreshLoggedInUser();
-
-    } catch (error) {
-
-      showError(errorElement, error);
-
-    }
-
-  });
-
-
-  /*
-  =========================================================
-  CREATE SESSION
-  =========================================================
-  */
-
-  $("#sessionForm")?.addEventListener("submit", async (event) => {
-
-    event.preventDefault();
-
-    const errorElement = $("#formError");
-
-    if (errorElement) {
-      errorElement.innerHTML = "";
-    }
-
-    if (!auth.currentUser) {
-
-      toast("Please log in first.");
-
-      return;
-
-    }
-
-    try {
-
-      const scheduledAt =
-        getValue("#scheduledAt").trim();
-
-      const duration =
-        Number(getValue("#duration", "60"));
-
-      const topicA =
-        getValue("#topicA").trim();
-
-      const topicB =
-        getValue("#topicB").trim();
-
-      const assignmentTitle =
-        getValue("#assignmentTitle").trim();
-
-      const contactDetails =
-        getValue("#ContactDetails").trim();
-
-
-      if (!scheduledAt) {
-
-        toast("Please choose a date and time.");
-
-        return;
-
-      }
-
-      if (!topicA) {
-
-        toast("Please enter your topic.");
-
-        return;
-
-      }
-
-      if (!topicB) {
-
-        toast("Please enter your partner's topic.");
-
-        return;
-
-      }
-
-      if (!data?.id) {
-
-        toast("The selected partner could not be found.");
+      } catch (error) {
 
         console.error(
-          "Missing partner data:",
-          data
+          "Create session error:",
+          error
         );
 
-        return;
-
-      }
-
-
-      /*
-      =====================================================
-      CREATE SESSION
-      =====================================================
-      */
-
-      const sessionReference =
-        await addDoc(
-          collection(db, "sessions"),
-          {
-
-            userIds: [
-              auth.currentUser.uid,
-              data.id
-            ],
-
-            createdBy:
-              auth.currentUser.uid,
-
-            /*
-              Useful for identifying the other participant.
-            */
-
-            partnerId:
-              data.id,
-
-            scheduledAt,
-
-            duration,
-
-            topicA,
-
-            topicB,
-
-            contactDetails,
-
-            /*
-            =================================================
-            NEW SESSION STATE
-            =================================================
-            */
-
-            status: "scheduled",
-
-            /*
-              Each user has their own confirmation.
-
-              false = not answered
-              true  = confirmed completed
-            */
-
-            confirmations: {
-              [auth.currentUser.uid]: null,
-              [data.id]: null
-            },
-
-            /*
-              Prevents the same browser from repeatedly
-              showing the START popup.
-            */
-
-            startNotifications: {
-              [auth.currentUser.uid]: false,
-              [data.id]: false
-            },
-
-            /*
-              Backend will use this after both users confirm.
-            */
-
-            rewardStatus: "waiting",
-
-            pointsAwarded: false,
-
-            createdAt:
-              serverTimestamp()
-
-          }
-        );
-
-
-      /*
-      =====================================================
-      CREATE ASSIGNMENT
-      =====================================================
-      */
-
-      if (assignmentTitle) {
-
-        await addDoc(
-          collection(db, "assignments"),
-          {
-
-            sessionId:
-              sessionReference.id,
-
-            userId:
-              auth.currentUser.uid,
-
-            partnerId:
-              data.id,
-
-            title:
-              assignmentTitle,
-
-            description: "",
-
-            completed: false,
-
-            createdAt:
-              serverTimestamp()
-
-          }
+        showError(
+          errorElement,
+          error
         );
 
       }
 
+    }
+  );
 
-      closeModal();
 
-      toast("Session scheduled successfully.");
+  /* APPROVE */
 
-      await loadDashboard();
+  $("#approveSession")?.addEventListener(
+    "click",
+    async () => {
 
-      /*
-        Check immediately in case someone scheduled
-        a session for a time that has already passed.
-      */
-
-      await checkSessions();
-
-    } catch (error) {
-
-      console.error(
-        "Create session error:",
-        error
-      );
-
-      showError(
-        errorElement,
-        error
+      await respondToSessionRequest(
+        data.id,
+        true
       );
 
     }
+  );
 
-  });
+
+  /* REJECT */
+
+  $("#rejectSession")?.addEventListener(
+    "click",
+    async () => {
+
+      await respondToSessionRequest(
+        data.id,
+        false
+      );
+
+    }
+  );
 
 
-  /*
-  =========================================================
-  SESSION START POPUP
-  =========================================================
-  */
+  $("#closeSessionDetails")?.addEventListener(
+    "click",
+    closeModal
+  );
+
 
   $("#sessionStartDone")?.addEventListener(
     "click",
-    async () => {
+    () => {
 
       closeModal();
 
@@ -1151,12 +1688,6 @@ function bindModal(type, data) {
     }
   );
 
-
-  /*
-  =========================================================
-  SESSION YES
-  =========================================================
-  */
 
   $("#sessionYes")?.addEventListener(
     "click",
@@ -1171,12 +1702,6 @@ function bindModal(type, data) {
   );
 
 
-  /*
-  =========================================================
-  SESSION NO
-  =========================================================
-  */
-
   $("#sessionNo")?.addEventListener(
     "click",
     async () => {
@@ -1190,49 +1715,39 @@ function bindModal(type, data) {
   );
 
 
-  /*
-  =========================================================
-  ACTIVITY
-  =========================================================
-  */
-
   if (type === "activity") {
-
     loadActivity();
-
   }
 
 
-  /*
-  =========================================================
-  REDEMPTION
-  =========================================================
-  */
-
   document
-    .querySelectorAll("[data-redeem]")
-    .forEach((button) => {
+    .querySelectorAll(
+      "[data-redeem]"
+    )
+    .forEach(
+      (button) => {
 
-      button.onclick = () => {
+        button.onclick = () => {
 
-        toast(
-          "Redemption is available at the 1,000-point milestone."
-        );
+          toast(
+            "Redemption is available at the 1,000-point milestone."
+          );
 
-      };
+        };
 
-    });
-
+      }
+    );
 }
 
 
-/*
-=========================================================
-CONFIRM SESSION
-=========================================================
-*/
+/* =====================================================
+   SESSION REQUEST RESPONSE
+===================================================== */
 
-async function confirmSession(sessionId, completed) {
+async function respondToSessionRequest(
+  sessionId,
+  approved
+) {
 
   if (!auth.currentUser) {
 
@@ -1241,7 +1756,6 @@ async function confirmSession(sessionId, completed) {
     openModal("login");
 
     return;
-
   }
 
   try {
@@ -1254,18 +1768,19 @@ async function confirmSession(sessionId, completed) {
       );
 
     const snapshot =
-      await getDoc(sessionReference);
+      await getDoc(
+        sessionReference
+      );
 
     if (!snapshot.exists()) {
 
-      toast(
-        "This session could not be found."
-      );
-
       closeModal();
 
-      return;
+      toast(
+        "This session no longer exists."
+      );
 
+      return;
     }
 
     const session =
@@ -1275,100 +1790,438 @@ async function confirmSession(sessionId, completed) {
       auth.currentUser.uid;
 
 
-    /*
-    =====================================================
-    MAKE SURE CURRENT USER IS A PARTICIPANT
-    =====================================================
-    */
-
     if (
-      !Array.isArray(session.userIds) ||
+      !Array.isArray(
+        session.userIds
+      ) ||
       !session.userIds.includes(uid)
     ) {
 
-      toast(
-        "You are not a participant in this session."
-      );
-
       closeModal();
 
-      return;
+      toast(
+        "You are not part of this session."
+      );
 
+      return;
     }
 
 
-    /*
-    =====================================================
-    SAVE THIS USER'S ANSWER
-    =====================================================
-    */
+    if (
+      session.createdBy === uid
+    ) {
 
-    const existingConfirmations =
+      closeModal();
+
+      toast(
+        "You cannot approve your own request."
+      );
+
+      return;
+    }
+
+
+    if (
+      session.status !== "pending"
+    ) {
+
+      closeModal();
+
+      toast(
+        "This session has already been processed."
+      );
+
+      return;
+    }
+
+
+    await updateDoc(
+      sessionReference,
+      {
+
+        status:
+          approved
+            ? "scheduled"
+            : "rejected",
+
+        approvedBy:
+          approved
+            ? uid
+            : null,
+
+        approvedAt:
+          approved
+            ? serverTimestamp()
+            : null
+
+      }
+    );
+
+
+    closeModal();
+
+    toast(
+      approved
+        ? "Session approved!"
+        : "Session request rejected."
+    );
+
+    await loadDashboard();
+
+  } catch (error) {
+
+    console.error(
+      "Session approval error:",
+      error
+    );
+
+    toast(
+      firebaseError(error)
+    );
+  }
+}
+
+
+/* =====================================================
+   PROFILE
+===================================================== */
+
+async function getProfile(uid) {
+
+  if (!uid) return null;
+
+  try {
+
+    const snapshot =
+      await getDoc(
+        doc(
+          db,
+          "users",
+          uid
+        )
+      );
+
+    if (!snapshot.exists()) {
+      return null;
+    }
+
+    return snapshot.data();
+
+  } catch (error) {
+
+    console.error(
+      "Get profile error:",
+      error
+    );
+
+    return null;
+  }
+}
+
+
+/* =====================================================
+   DATE FUNCTIONS
+===================================================== */
+
+function parseScheduledDate(value) {
+
+  if (!value) {
+    return null;
+  }
+
+  if (
+    typeof value.toDate ===
+    "function"
+  ) {
+    return value.toDate();
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  const date =
+    new Date(value);
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return null;
+  }
+
+  return date;
+}
+
+function formatSessionDate(value) {
+
+  const date =
+    parseScheduledDate(value);
+
+  if (!date) {
+    return "Unknown time";
+  }
+
+  return date.toLocaleString();
+}
+
+
+/* =====================================================
+   INCOMING SESSION REQUESTS
+===================================================== */
+
+async function checkIncomingSessionRequests() {
+
+  if (!auth.currentUser) {
+    return;
+  }
+
+  try {
+
+    const snapshot =
+      await getDocs(
+        query(
+          collection(
+            db,
+            "sessions"
+          ),
+
+          where(
+            "userIds",
+            "array-contains",
+            auth.currentUser.uid
+          )
+        )
+      );
+
+
+    for (
+      const document
+      of snapshot.docs
+    ) {
+
+      const session = {
+
+        id:
+          document.id,
+
+        ...document.data()
+
+      };
+
+
+      if (
+        session.status !==
+        "pending"
+      ) {
+        continue;
+      }
+
+
+      if (
+        session.createdBy ===
+        auth.currentUser.uid
+      ) {
+        continue;
+      }
+
+
+      const requester =
+        await getProfile(
+          session.createdBy
+        );
+
+
+      const backdrop =
+        $("#modalBackdrop");
+
+
+      if (
+        backdrop?.classList.contains(
+          "open"
+        )
+      ) {
+        return;
+      }
+
+
+      openModal(
+        "sessionRequest",
+        {
+
+          ...session,
+
+          requesterName:
+            requester?.name ||
+            "A SkillSwap member"
+
+        }
+      );
+
+      return;
+    }
+
+  } catch (error) {
+
+    console.error(
+      "Incoming request error:",
+      error
+    );
+  }
+}
+
+
+/* =====================================================
+   SESSION CONFIRMATION
+===================================================== */
+
+async function confirmSession(
+  sessionId,
+  completed
+) {
+
+  if (!auth.currentUser) {
+
+    closeModal();
+
+    openModal("login");
+
+    return;
+  }
+
+  try {
+
+    const sessionReference =
+      doc(
+        db,
+        "sessions",
+        sessionId
+      );
+
+    const snapshot =
+      await getDoc(
+        sessionReference
+      );
+
+    if (!snapshot.exists()) {
+
+      closeModal();
+
+      toast(
+        "This session could not be found."
+      );
+
+      return;
+    }
+
+    const session =
+      snapshot.data();
+
+    const uid =
+      auth.currentUser.uid;
+
+
+    if (
+      !Array.isArray(
+        session.userIds
+      ) ||
+      !session.userIds.includes(uid)
+    ) {
+
+      closeModal();
+
+      toast(
+        "You are not a participant."
+      );
+
+      return;
+    }
+
+
+    const start =
+      parseScheduledDate(
+        session.scheduledAt
+      );
+
+
+    if (start) {
+
+      const endTime =
+        start.getTime() +
+        Number(
+          session.duration || 60
+        ) *
+        60 *
+        1000;
+
+
+      if (
+        Date.now() <
+        endTime
+      ) {
+
+        closeModal();
+
+        toast(
+          "You can confirm after the session ends."
+        );
+
+        return;
+      }
+    }
+
+
+    const confirmations =
       session.confirmations || {};
 
+
     const updatedConfirmations = {
-      ...existingConfirmations,
-      [uid]: completed
+
+      ...confirmations,
+
+      [uid]:
+        completed
+
     };
 
 
-    /*
-    =====================================================
-    CHECK WHETHER BOTH USERS HAVE ANSWERED YES
-    =====================================================
-    */
-
     const participants =
       session.userIds || [];
+
 
     const bothConfirmed =
       participants.length === 2 &&
       participants.every(
         (participantId) =>
-          updatedConfirmations[participantId] === true
+          updatedConfirmations[
+            participantId
+          ] === true
       );
 
-
-    /*
-    =====================================================
-    CHECK WHETHER EITHER USER SAID NO
-    =====================================================
-    */
 
     const someoneSaidNo =
       participants.some(
         (participantId) =>
-          updatedConfirmations[participantId] === false
+          updatedConfirmations[
+            participantId
+          ] === false
       );
 
 
     let rewardStatus =
-      session.rewardStatus || "waiting";
+      "waiting";
 
 
     if (someoneSaidNo) {
 
-      rewardStatus = "not_eligible";
+      rewardStatus =
+        "not_eligible";
 
     } else if (bothConfirmed) {
 
-      /*
-        IMPORTANT:
-
-        We do NOT directly add points here.
-
-        The backend should watch for:
-
-        rewardStatus === "pending"
-
-        and securely award points once.
-      */
-
-      rewardStatus = "pending";
-
-    } else {
-
-      rewardStatus = "waiting";
+      rewardStatus =
+        "eligible";
 
     }
 
@@ -1382,11 +2235,6 @@ async function confirmSession(sessionId, completed) {
 
         rewardStatus,
 
-        /*
-          Session itself is finished once the
-          scheduled time + duration has passed.
-        */
-
         status:
           "completed",
 
@@ -1398,33 +2246,48 @@ async function confirmSession(sessionId, completed) {
     );
 
 
+    /*
+     IMPORTANT:
+
+     If both users say YES,
+     we now directly award points
+     using a Firestore transaction.
+
+     No Cloud Functions required.
+    */
+
+    if (
+      bothConfirmed &&
+      !session.pointsAwarded
+    ) {
+
+      await awardSessionPoints(
+        sessionId
+      );
+
+    }
+
+
     closeModal();
 
-
-    /*
-    =====================================================
-    USER FEEDBACK
-    =====================================================
-    */
 
     if (!completed) {
 
       toast(
-        "No reward points will be given for this session."
+        "Confirmation saved. No points will be awarded."
       );
 
     } else if (bothConfirmed) {
 
       toast(
-        "Both users confirmed! Reward points are now pending backend processing."
+        "Both confirmed! Points awarded."
       );
 
     } else {
 
       toast(
-        "Your confirmation was saved. Waiting for your partner to confirm."
+        "Confirmation saved. Waiting for your partner."
       );
-
     }
 
 
@@ -1442,1094 +2305,152 @@ async function confirmSession(sessionId, completed) {
     toast(
       firebaseError(error)
     );
-
   }
-
 }
 
 
-/*
-=========================================================
-AUTH UI
-=========================================================
-*/
-
-function updateNavigation(user) {
-
-  const loginButtons = [
-    $("#loginBtn"),
-    $("#mobileLogin")
-  ];
-
-  const signupButtons = [
-    $("#signupBtn"),
-    $("#mobileSignup"),
-    $("#heroSignup"),
-    $("#ctaSignup")
-  ];
-
-
-  loginButtons.forEach((button) => {
-
-    if (!button) return;
-
-    button.textContent =
-      user
-        ? "Log out"
-        : "Log in";
-
-  });
-
-
-  signupButtons.forEach((button) => {
-
-    if (!button) return;
-
-    if (user) {
-
-      button.textContent =
-        button.id === "ctaSignup"
-          ? "Open dashboard"
-          : "My dashboard";
-
-    } else {
-
-      button.textContent =
-        button.id === "ctaSignup"
-          ? "Join SkillSwap"
-          : button.id === "heroSignup"
-            ? "Create your profile"
-            : "Join free";
-
-    }
-
-  });
-
-
-  $("#loginBtn").onclick =
-    async () => {
-
-      if (auth.currentUser) {
-
-        await logout();
-
-      } else {
-
-        openModal("login");
-
-      }
-
-    };
-
-
-  $("#mobileLogin").onclick =
-    async () => {
-
-      if (auth.currentUser) {
-
-        await logout();
-
-      } else {
-
-        openModal("login");
-
-      }
-
-    };
-
-
-  [
-    $("#signupBtn"),
-    $("#mobileSignup"),
-    $("#heroSignup"),
-    $("#ctaSignup")
-  ]
-    .filter(Boolean)
-    .forEach((button) => {
-
-      button.onclick = () => {
-
-        if (auth.currentUser) {
-
-          $("#dashboard")?.scrollIntoView({
-            behavior: "smooth"
-          });
-
-        } else {
-
-          openModal("signup");
-
-        }
-
-      };
-
-    });
-
-}
-
-
-async function logout() {
-
-  try {
-
-    await signOut(auth);
-
-    closeModal();
-
-    stopSessionTimer();
-
-    toast(
-      "You have been logged out."
-    );
-
-  } catch (error) {
-
-    console.error(
-      "Logout error:",
-      error
-    );
-
-    toast(
-      "Could not log out. Please try again."
-    );
-
-  }
-
-}
-
-
-/*
-=========================================================
-PROFILE
-=========================================================
-*/
-
-async function getProfile(uid) {
-
-  const snapshot =
-    await getDoc(
-      doc(
-        db,
-        "users",
-        uid
-      )
-    );
-
-  if (!snapshot.exists()) {
-    return null;
-  }
-
-  return snapshot.data();
-
-}
-
-
-async function refreshLoggedInUser() {
+/* =====================================================
+   SIMPLE POINT REWARD SYSTEM
+===================================================== */
+
+async function awardSessionPoints(
+  sessionId
+) {
 
   if (!auth.currentUser) {
     return;
   }
 
-  try {
 
-    const profile =
-      await getProfile(
-        auth.currentUser.uid
-      );
-
-    currentUser = {
-      ...auth.currentUser,
-      profile:
-        profile || {}
-    };
-
-    await loadSkills();
-
-    await loadDashboard();
-
-    await loadWallet();
-
-    await checkSessions();
-
-  } catch (error) {
-
-    console.error(
-      "Could not refresh profile:",
-      error
+  const sessionReference =
+    doc(
+      db,
+      "sessions",
+      sessionId
     );
 
-    toast(
-      "Could not load your profile. Check Firestore permissions."
-    );
 
-  }
+  await runTransaction(
+    db,
+    async (transaction) => {
 
-}
+      const sessionSnapshot =
+        await transaction.get(
+          sessionReference
+        );
 
 
-/*
-=========================================================
-SKILL SEARCH
-=========================================================
-*/
+      if (!sessionSnapshot.exists()) {
+        throw new Error(
+          "Session does not exist."
+        );
+      }
 
-async function loadSkills() {
 
-  const search =
-    (getValue("#skillSearch") || "")
-      .trim()
-      .toLowerCase();
+      const session =
+        sessionSnapshot.data();
 
-  const state =
-    $("#skillsState");
 
-  const grid =
-    $("#skillGrid");
+      if (
+        session.pointsAwarded === true
+      ) {
+        return;
+      }
 
-  if (!state || !grid) {
-    return;
-  }
 
-  if (!currentUser) {
+      const confirmations =
+        session.confirmations || {};
 
-    state.textContent =
-      "Create an account to explore members and skills.";
 
-    state.style.display =
-      "block";
+      const participants =
+        session.userIds || [];
 
-    grid.innerHTML = "";
 
-    return;
+      const bothConfirmed =
+        participants.length === 2 &&
+        participants.every(
+          (uid) =>
+            confirmations[uid] === true
+        );
 
-  }
 
-  try {
+      if (!bothConfirmed) {
+        return;
+      }
 
-    const snapshot =
-      await getDocs(
-        query(
-          collection(db, "users"),
-          orderBy("name")
-        )
-      );
 
+      const POINTS =
+        100;
 
-    const users =
-      snapshot.docs
-        .map((document) => ({
-          id:
-            document.id,
-          ...document.data()
-        }))
-        .filter(
-          (user) =>
-            user.id !== currentUser.uid
-        )
-        .filter((user) => {
 
-          const searchable = `
-            ${user.name || ""}
-            ${(user.teach || []).join(" ")}
-            ${(user.learn || []).join(" ")}
-            ${user.bio || ""}
-          `.toLowerCase();
+      for (
+        const uid
+        of participants
+      ) {
 
-          return !search ||
-            searchable.includes(search);
-
-        });
-
-
-    if (!users.length) {
-
-      state.style.display =
-        "block";
-
-      state.textContent =
-        search
-          ? "No members match that search yet."
-          : "No other members have joined yet — invite a friend to create the first profile.";
-
-      grid.innerHTML = "";
-
-      return;
-
-    }
-
-
-    state.style.display =
-      "none";
-
-
-    grid.innerHTML =
-      users
-        .map((user) => `
-
-          <article class="skill-card">
-
-            <div class="skill-card-top">
-
-              <div class="member">
-
-                <div class="member-avatar">
-                  ${initials(user.name)}
-                </div>
-
-                <div class="member-info">
-
-                  <strong>
-                    ${esc(
-                      user.name ||
-                      "Member"
-                    )}
-                  </strong>
-
-                  <small>
-                    Wants to learn
-                    ${
-                      (user.learn || [])
-                        .slice(0, 2)
-                        .map(esc)
-                        .join(" · ")
-                      ||
-                      "new skills"
-                    }
-                  </small>
-
-                </div>
-
-              </div>
-
-              <span class="availability">
-                ${esc(
-                  user.availability ||
-                  "Flexible"
-                )}
-              </span>
-
-            </div>
-
-            <h3>
-              ${esc(
-                (user.teach || [])[0]
-                ||
-                "Skills to share"
-              )}
-            </h3>
-
-            <p>
-              ${esc(
-                user.bio
-                ||
-                "Ready to exchange knowledge one-on-one."
-              )}
-            </p>
-
-            <div class="chips">
-
-              ${(user.teach || [])
-                .slice(0, 4)
-                .map(
-                  (skill) =>
-                    `<span class="chip">${esc(skill)}</span>`
-                )
-                .join("")}
-
-            </div>
-
-            <button
-              class="btn outline"
-              data-connect="${user.id}"
-            >
-              View & connect
-            </button>
-
-          </article>
-
-        `)
-        .join("");
-
-
-    document
-      .querySelectorAll("[data-connect]")
-      .forEach((button) => {
-
-        button.onclick =
-          async () => {
-
-            const user =
-              users.find(
-                (item) =>
-                  item.id ===
-                  button.dataset.connect
-              );
-
-            if (!user) {
-              return;
-            }
-
-            await connectAndSchedule(
-              user
-            );
-
-          };
-
-      });
-
-
-  } catch (error) {
-
-    console.error(
-      "Could not load users:",
-      error
-    );
-
-    state.style.display =
-      "block";
-
-    state.textContent =
-      "Could not load members. Check your Firestore rules.";
-
-    grid.innerHTML = "";
-
-    toast(
-      firebaseError(error)
-    );
-
-  }
-
-}
-
-
-/*
-=========================================================
-CONNECTIONS
-=========================================================
-*/
-
-async function connectAndSchedule(user) {
-
-  if (!auth.currentUser) {
-
-    openModal("login");
-
-    return;
-
-  }
-
-  try {
-
-    const existingSnapshot =
-      await getDocs(
-        query(
-          collection(db, "connections"),
-          where(
-            "userIds",
-            "array-contains",
-            auth.currentUser.uid
-          )
-        )
-      );
-
-
-    const alreadyConnected =
-      existingSnapshot.docs.some(
-        (document) => {
-
-          const data =
-            document.data();
-
-          return (
-            Array.isArray(
-              data.userIds
-            ) &&
-            data.userIds.includes(
-              user.id
-            )
+        const userReference =
+          doc(
+            db,
+            "users",
+            uid
           );
 
-        }
-      );
+
+        const userSnapshot =
+          await transaction.get(
+            userReference
+          );
 
 
-    if (!alreadyConnected) {
+        const currentPoints =
+          Number(
+            userSnapshot.data()?.points ||
+            0
+          );
 
-      await addDoc(
-        collection(db, "connections"),
+
+        transaction.update(
+          userReference,
+          {
+
+            points:
+              currentPoints +
+              POINTS,
+
+            lastActivity:
+              serverTimestamp()
+
+          }
+        );
+      }
+
+
+      transaction.update(
+        sessionReference,
         {
 
-          userIds: [
-            auth.currentUser.uid,
-            user.id
-          ],
+          pointsAwarded:
+            true,
 
-          initiator:
-            auth.currentUser.uid,
+          rewardStatus:
+            "awarded",
 
-          status:
-            "pending",
+          points:
+            POINTS,
 
-          createdAt:
+          pointsAwardedAt:
             serverTimestamp()
 
         }
       );
-
-      toast(
-        "Connection request sent."
-      );
-
-    } else {
-
-      toast(
-        "You are already connected with this member."
-      );
-
     }
-
-
-    openModal(
-      "session",
-      user
-    );
-
-
-  } catch (error) {
-
-    console.error(
-      "Connection error:",
-      error
-    );
-
-    toast(
-      firebaseError(error)
-    );
-
-  }
-
+  );
 }
 
 
-/*
-=========================================================
-DASHBOARD
-=========================================================
-*/
-
-async function loadDashboard() {
-
-  const dashboard =
-    $("#dashboardContent");
-
-  if (!dashboard) {
-    return;
-  }
-
-  if (!currentUser) {
-
-    dashboard.innerHTML = `
-      <div class="state-card">
-        Your dashboard will appear here after you sign in.
-      </div>
-    `;
-
-    if ($("#profileBtn")) {
-      $("#profileBtn").style.display =
-        "none";
-    }
-
-    if ($("#dashboardSubtitle")) {
-
-      $("#dashboardSubtitle").textContent =
-        "Sign in to manage your profile, connections and sessions.";
-
-    }
-
-    return;
-
-  }
-
-
-  if ($("#profileBtn")) {
-    $("#profileBtn").style.display =
-      "block";
-  }
-
-
-  const profile =
-    currentUser.profile || {};
-
-
-  try {
-
-    const [
-      sessionsSnapshot,
-      assignmentsSnapshot,
-      connectionsSnapshot
-    ] =
-      await Promise.all([
-
-        getDocs(
-          query(
-            collection(db, "sessions"),
-            where(
-              "userIds",
-              "array-contains",
-              currentUser.uid
-            )
-          )
-        ),
-
-        getDocs(
-          query(
-            collection(db, "assignments"),
-            where(
-              "userId",
-              "==",
-              currentUser.uid
-            )
-          )
-        ),
-
-        getDocs(
-          query(
-            collection(db, "connections"),
-            where(
-              "userIds",
-              "array-contains",
-              currentUser.uid
-            )
-          )
-        )
-
-      ]);
-
-
-    const sessions =
-      sessionsSnapshot.docs
-        .map((document) => ({
-          id:
-            document.id,
-          ...document.data()
-        }));
-
-
-    const assignments =
-      assignmentsSnapshot.docs
-        .map((document) => ({
-          id:
-            document.id,
-          ...document.data()
-        }));
-
-
-    const connections =
-      connectionsSnapshot.docs
-        .map((document) => ({
-          id:
-            document.id,
-          ...document.data()
-        }));
-
-
-    /*
-    =====================================================
-    ONLY SHOW UPCOMING / WAITING SESSIONS
-    =====================================================
-    */
-
-    const now =
-      Date.now();
-
-
-    const upcoming =
-      sessions
-        .filter(
-          (session) => {
-
-            if (
-              session.status ===
-              "completed"
-            ) {
-              return false;
-            }
-
-            const start =
-              parseScheduledDate(
-                session.scheduledAt
-              );
-
-            return start &&
-              start.getTime() >= now;
-
-          }
-        )
-        .sort(
-          (a, b) =>
-            String(
-              a.scheduledAt || ""
-            )
-              .localeCompare(
-                String(
-                  b.scheduledAt || ""
-                )
-              )
-        )
-        .slice(0, 4);
-
-
-    const pendingAssignments =
-      assignments
-        .filter(
-          (assignment) =>
-            !assignment.completed
-        )
-        .slice(0, 4);
-
-
-    if ($("#dashboardSubtitle")) {
-
-      $("#dashboardSubtitle").textContent =
-        `Welcome, ${
-          profile.name ||
-          auth.currentUser.displayName ||
-          auth.currentUser.email
-        }. Manage your exchange from one place.`;
-
-    }
-
-
-    dashboard.innerHTML = `
-
-      <div class="dash-card">
-
-        <h3>Progress</h3>
-
-        <div class="stat-row">
-
-          <div class="stat-box">
-            <strong>
-              ${Number(
-                profile.points || 0
-              )}
-            </strong>
-            <small>Points</small>
-          </div>
-
-          <div class="stat-box">
-            <strong>
-              ${Number(
-                profile.streak || 0
-              )}
-            </strong>
-            <small>Day streak</small>
-          </div>
-
-          <div class="stat-box">
-            <strong>
-              ${connections.length}
-            </strong>
-            <small>Connections</small>
-          </div>
-
-        </div>
-
-        <div
-          class="chips"
-          style="margin-top:15px"
-        >
-
-          ${(profile.teach || [])
-            .slice(0, 6)
-            .map(
-              (skill) =>
-                `<span class="chip">Teach: ${esc(skill)}</span>`
-            )
-            .join("")}
-
-          ${(profile.learn || [])
-            .slice(0, 6)
-            .map(
-              (skill) =>
-                `<span class="chip">Learn: ${esc(skill)}</span>`
-            )
-            .join("")}
-
-        </div>
-
-      </div>
-
-
-      <div class="dash-card">
-
-        <h3>Upcoming sessions</h3>
-
-        <div class="list">
-
-          ${
-            upcoming.length
-              ? upcoming
-                  .map(
-                    (session) => `
-
-                      <div class="list-item">
-
-                        <strong>
-                          ${esc(
-                            session.topicA
-                          )}
-                          ↔
-                          ${esc(
-                            session.topicB
-                          )}
-                        </strong>
-
-                        <small>
-
-                          ${esc(
-                            session.scheduledAt
-                          )}
-
-                          ·
-
-                          ${session.duration}
-                          min
-
-                        </small>
-
-                      </div>
-
-                    `
-                  )
-                  .join("")
-              : `
-
-                <div class="list-item">
-
-                  <small>
-                    No upcoming sessions scheduled.
-                  </small>
-
-                </div>
-
-              `
-          }
-
-        </div>
-
-      </div>
-
-
-      <div class="dash-card">
-
-        <h3>Assignments</h3>
-
-        <div class="list">
-
-          ${
-            pendingAssignments.length
-              ? pendingAssignments
-                  .map(
-                    (assignment) => `
-
-                      <div class="list-item">
-
-                        <strong>
-                          ${esc(
-                            assignment.title
-                          )}
-                        </strong>
-
-                        <small>
-
-                          ${esc(
-                            assignment.description ||
-                            ""
-                          )}
-
-                          <button
-                            class="small-complete"
-                            data-assignment="${assignment.id}"
-                          >
-                            Complete
-                          </button>
-
-                        </small>
-
-                      </div>
-
-                    `
-                  )
-                  .join("")
-              : `
-
-                <div class="list-item">
-
-                  <small>
-                    No pending assignments.
-                  </small>
-
-                </div>
-
-              `
-          }
-
-        </div>
-
-      </div>
-
-    `;
-
-
-    /*
-    =====================================================
-    ASSIGNMENTS
-    =====================================================
-    */
-
-    document
-      .querySelectorAll(
-        "[data-assignment]"
-      )
-      .forEach((button) => {
-
-        button.onclick =
-          () =>
-            completeAssignment(
-              button.dataset.assignment
-            );
-
-      });
-
-
-  } catch (error) {
-
-    console.error(
-      "Dashboard error:",
-      error
-    );
-
-    dashboard.innerHTML = `
-
-      <div class="state-card">
-
-        <strong>
-          Dashboard could not load.
-        </strong>
-
-        <br><br>
-
-        ${esc(
-          firebaseError(error)
-        )}
-
-      </div>
-
-    `;
-
-    toast(
-      firebaseError(error)
-    );
-
-  }
-
-}
-
-
-/*
-=========================================================
-DATE HELPERS
-=========================================================
-*/
-
-function parseScheduledDate(value) {
-
-  if (!value) {
-    return null;
-  }
-
-  /*
-    datetime-local normally gives:
-
-    2026-08-29T21:30
-
-    We intentionally parse it as the user's local time.
-  */
-
-  const date =
-    new Date(value);
-
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
-    return null;
-  }
-
-  return date;
-
-}
-
-
-/*
-=========================================================
-AUTOMATIC SESSION CHECKER
-=========================================================
-*/
-
-function startSessionTimer() {
-
-  stopSessionTimer();
-
-  /*
-    Check immediately.
-  */
-
-  checkSessions();
-
-
-  /*
-    Then check every 30 seconds.
-
-    This means the popup does not depend on
-    the user manually refreshing.
-  */
-
-  sessionTimer =
-    setInterval(
-      () => {
-
-        checkSessions();
-
-      },
-      30 * 1000
-    );
-
-}
-
-
-function stopSessionTimer() {
-
-  if (sessionTimer) {
-
-    clearInterval(
-      sessionTimer
-    );
-
-    sessionTimer = null;
-
-  }
-
-}
-
-
-/*
-=========================================================
-CHECK ALL USER SESSIONS
-=========================================================
-*/
+/* =====================================================
+   SESSION CHECK
+===================================================== */
 
 async function checkSessions() {
 
@@ -2548,7 +2469,11 @@ async function checkSessions() {
     const snapshot =
       await getDocs(
         query(
-          collection(db, "sessions"),
+          collection(
+            db,
+            "sessions"
+          ),
+
           where(
             "userIds",
             "array-contains",
@@ -2559,33 +2484,46 @@ async function checkSessions() {
 
 
     const sessions =
-      snapshot.docs
-        .map((document) => ({
+      snapshot.docs.map(
+        (document) => ({
+
           id:
             document.id,
+
           ...document.data()
-        }));
+
+        })
+      );
 
 
     const now =
       Date.now();
 
 
-    /*
-    =====================================================
-    CHECK FOR STARTING SESSIONS
-    =====================================================
-    */
-
     for (
       const session
       of sessions
     ) {
 
+      if (
+        session.status !==
+          "scheduled" &&
+
+        session.status !==
+          "in_progress" &&
+
+        session.status !==
+          "completed"
+      ) {
+        continue;
+      }
+
+
       const start =
         parseScheduledDate(
           session.scheduledAt
         );
+
 
       if (!start) {
         continue;
@@ -2595,21 +2533,22 @@ async function checkSessions() {
       const startTime =
         start.getTime();
 
+
       const endTime =
         startTime +
-        (
-          Number(
-            session.duration || 60
-          ) *
-          60 *
-          1000
-        );
+
+        Number(
+          session.duration ||
+          60
+        ) *
+
+        60 *
+
+        1000;
 
 
       /*
-      ===================================================
-      SESSION HAS STARTED
-      ===================================================
+      SESSION START
       */
 
       if (
@@ -2623,6 +2562,7 @@ async function checkSessions() {
           session.startNotifications ||
           {};
 
+
         const alreadyShown =
           notifications[
             auth.currentUser.uid
@@ -2630,14 +2570,6 @@ async function checkSessions() {
 
 
         if (!alreadyShown) {
-
-          /*
-            Mark notification as shown BEFORE
-            opening the modal.
-
-            This prevents the popup from appearing
-            repeatedly every 30 seconds.
-          */
 
           await updateDoc(
             doc(
@@ -2662,21 +2594,13 @@ async function checkSessions() {
             session
           );
 
-          /*
-            Only show one popup at a time.
-          */
-
           break;
-
         }
-
       }
 
 
       /*
-      ===================================================
-      SESSION HAS ENDED
-      ===================================================
+      SESSION ENDED
       */
 
       if (
@@ -2687,60 +2611,45 @@ async function checkSessions() {
           session.confirmations ||
           {};
 
+
         const myAnswer =
           confirmations[
             auth.currentUser.uid
           ];
 
 
-        /*
-        If the user has NOT answered yet,
-        always ask them.
-
-        This is what makes the prompt persistent
-        even if they were offline.
-        */
-
         if (
           myAnswer === undefined ||
           myAnswer === null
         ) {
 
-          /*
-            Don't keep reopening it if another modal
-            is already open.
-          */
-
           const backdrop =
             $("#modalBackdrop");
 
-          const modalAlreadyOpen =
+
+          if (
             backdrop?.classList.contains(
               "open"
-            );
-
-
-          if (!modalAlreadyOpen) {
-
-            openModal(
-              "sessionComplete",
-              session
-            );
-
+            )
+          ) {
+            continue;
           }
 
+
+          openModal(
+            "sessionComplete",
+            session
+          );
+
           break;
-
         }
-
       }
-
     }
 
   } catch (error) {
 
     console.error(
-      "Session checker error:",
+      "Session check error:",
       error
     );
 
@@ -2748,277 +2657,56 @@ async function checkSessions() {
 
     sessionCheckRunning =
       false;
-
   }
-
 }
 
 
-/*
-=========================================================
-ASSIGNMENTS
-=========================================================
-*/
+/* =====================================================
+   SESSION TIMER
+===================================================== */
 
-async function completeAssignment(id) {
+function startSessionTimer() {
 
-  try {
+  stopSessionTimer();
 
-    await updateDoc(
-      doc(
-        db,
-        "assignments",
-        id
-      ),
-      {
+  checkSessions();
 
-        completed:
-          true,
+  checkIncomingSessionRequests();
 
-        completedAt:
-          serverTimestamp()
 
-      }
+  sessionTimer =
+    setInterval(
+      () => {
+
+        checkSessions();
+
+        checkIncomingSessionRequests();
+
+        loadDashboard();
+
+      },
+      10000
     );
-
-    toast(
-      "Assignment completed."
-    );
-
-    await loadDashboard();
-
-  } catch (error) {
-
-    console.error(
-      "Complete assignment error:",
-      error
-    );
-
-    toast(
-      firebaseError(error)
-    );
-
-  }
-
 }
 
 
-/*
-=========================================================
-WALLET
-=========================================================
-*/
+function stopSessionTimer() {
 
-async function loadWallet() {
+  if (sessionTimer) {
 
-  if (!currentUser) {
-
-    if ($("#walletPoints"))
-      $("#walletPoints").textContent =
-        "0";
-
-    if ($("#walletRemaining"))
-      $("#walletRemaining").textContent =
-        "Sign in to track rewards";
-
-    if ($("#walletStreak"))
-      $("#walletStreak").textContent =
-        "— day streak";
-
-    if ($("#walletStatus"))
-      $("#walletStatus").textContent =
-        "Not signed in";
-
-    if ($("#walletProgress"))
-      $("#walletProgress").style.width =
-        "0%";
-
-    return;
-
-  }
-
-
-  const profile =
-    currentUser.profile || {};
-
-
-  const points =
-    Number(
-      profile.points || 0
+    clearInterval(
+      sessionTimer
     );
 
-
-  if ($("#walletPoints"))
-    $("#walletPoints").textContent =
-      points.toLocaleString();
-
-
-  if ($("#walletRemaining")) {
-
-    $("#walletRemaining").textContent =
-      points >= 1000
-        ? "Milestone unlocked"
-        : `${
-            (
-              1000 -
-              points
-            ).toLocaleString()
-          } points to 1,000`;
-
+    sessionTimer =
+      null;
   }
-
-
-  if ($("#walletStreak")) {
-
-    $("#walletStreak").textContent =
-      `${
-        profile.streak || 0
-      } day streak`;
-
-  }
-
-
-  if ($("#walletStatus"))
-    $("#walletStatus").textContent =
-      "Active";
-
-
-  if ($("#walletProgress"))
-    $("#walletProgress").style.width =
-      `${
-        Math.min(
-          100,
-          points / 10
-        )
-      }%`;
-
 }
 
 
-/*
-=========================================================
-ACTIVITY
-=========================================================
-*/
-
-async function loadActivity() {
-
-  const container =
-    $("#activityList");
-
-  if (
-    !container ||
-    !currentUser
-  ) {
-    return;
-  }
-
-  try {
-
-    const snapshot =
-      await getDocs(
-        query(
-          collection(
-            db,
-            "pointEvents"
-          ),
-          where(
-            "userId",
-            "==",
-            currentUser.uid
-          ),
-          orderBy(
-            "createdAt",
-            "desc"
-          )
-        )
-      );
-
-
-    if (!snapshot.docs.length) {
-
-      container.innerHTML = `
-
-        <div class="list-item">
-
-          <small>
-            No reward activity yet.
-          </small>
-
-        </div>
-
-      `;
-
-      return;
-
-    }
-
-
-    container.innerHTML =
-      snapshot.docs
-        .slice(0, 12)
-        .map((document) => {
-
-          const event =
-            document.data();
-
-          return `
-
-            <div class="list-item">
-
-              <strong>
-                ${esc(
-                  event.reason ||
-                  "Point activity"
-                )}
-              </strong>
-
-              <small>
-                +${
-                  Number(
-                    event.points || 0
-                  )
-                }
-                points
-              </small>
-
-            </div>
-
-          `;
-
-        })
-        .join("");
-
-
-  } catch (error) {
-
-    console.error(
-      "Activity error:",
-      error
-    );
-
-    container.innerHTML = `
-
-      <div class="list-item">
-
-        <small>
-          Could not load reward activity.
-        </small>
-
-      </div>
-
-    `;
-
-  }
-
-}
-
-
-/*
-=========================================================
-THEME
-=========================================================
-*/
+/* =====================================================
+   THEME
+===================================================== */
 
 function themeInit() {
 
@@ -3027,6 +2715,7 @@ function themeInit() {
       "skillswap-theme"
     );
 
+
   if (
     saved === "light"
   ) {
@@ -3034,11 +2723,10 @@ function themeInit() {
     document.body.classList.add(
       "light"
     );
-
   }
 
-  updateThemeIcon();
 
+  updateThemeIcon();
 }
 
 
@@ -3049,13 +2737,13 @@ function updateThemeIcon() {
 
   if (!button) return;
 
+
   button.textContent =
     document.body.classList.contains(
       "light"
     )
       ? "☾"
       : "☀";
-
 }
 
 
@@ -3067,14 +2755,17 @@ $("#themeToggle")?.addEventListener(
       "light"
     );
 
+
     localStorage.setItem(
       "skillswap-theme",
+
       document.body.classList.contains(
         "light"
       )
         ? "light"
         : "dark"
     );
+
 
     updateThemeIcon();
 
@@ -3085,11 +2776,9 @@ $("#themeToggle")?.addEventListener(
 themeInit();
 
 
-/*
-=========================================================
-NAVIGATION
-=========================================================
-*/
+/* =====================================================
+   NAVIGATION
+===================================================== */
 
 $("#menuBtn")?.addEventListener(
   "click",
@@ -3112,7 +2801,6 @@ $("#profileBtn")?.addEventListener(
       openModal("login");
 
       return;
-
     }
 
     openModal("profile");
@@ -3136,7 +2824,6 @@ $("#walletAction")?.addEventListener(
       openModal("login");
 
     }
-
   }
 );
 
@@ -3152,29 +2839,179 @@ document
   .querySelectorAll(
     "[data-scroll]"
   )
-  .forEach((button) => {
+  .forEach(
+    (button) => {
 
-    button.onclick = () => {
+      button.onclick = () => {
 
-      const target =
-        document.querySelector(
-          button.dataset.scroll
-        );
+        const target =
+          document.querySelector(
+            button.dataset.scroll
+          );
 
-      target?.scrollIntoView({
-        behavior: "smooth"
-      });
+
+        target?.scrollIntoView({
+          behavior: "smooth"
+        });
+
+      };
+
+    }
+  );
+
+
+/* =====================================================
+   NAVIGATION AUTH UI
+===================================================== */
+
+function updateNavigation(user) {
+
+  const loginButtons = [
+
+    $("#loginBtn"),
+
+    $("#mobileLogin")
+
+  ];
+
+
+  const signupButtons = [
+
+    $("#signupBtn"),
+
+    $("#mobileSignup"),
+
+    $("#heroSignup"),
+
+    $("#ctaSignup")
+
+  ];
+
+
+  loginButtons.forEach(
+    (button) => {
+
+      if (!button) return;
+
+      button.textContent =
+        user
+          ? "Log out"
+          : "Log in";
+
+    }
+  );
+
+
+  signupButtons.forEach(
+    (button) => {
+
+      if (!button) return;
+
+
+      if (user) {
+
+        button.textContent =
+          button.id ===
+          "ctaSignup"
+
+            ? "Open dashboard"
+
+            : "My dashboard";
+
+      } else {
+
+        button.textContent =
+          button.id ===
+          "ctaSignup"
+
+            ? "Join SkillSwap"
+
+            : button.id ===
+              "heroSignup"
+
+              ? "Create your profile"
+
+              : "Join free";
+
+      }
+
+    }
+  );
+
+
+  $("#loginBtn").onclick =
+    async () => {
+
+      if (auth.currentUser) {
+
+        await signOut(auth);
+
+      } else {
+
+        openModal("login");
+
+      }
 
     };
 
-  });
+
+  $("#mobileLogin").onclick =
+    async () => {
+
+      if (auth.currentUser) {
+
+        await signOut(auth);
+
+      } else {
+
+        openModal("login");
+
+      }
+
+    };
 
 
-/*
-=========================================================
-AUTH STATE
-=========================================================
-*/
+  [
+
+    $("#signupBtn"),
+
+    $("#mobileSignup"),
+
+    $("#heroSignup"),
+
+    $("#ctaSignup")
+
+  ]
+
+    .filter(Boolean)
+
+    .forEach(
+      (button) => {
+
+        button.onclick = () => {
+
+          if (auth.currentUser) {
+
+            $("#dashboard")?.scrollIntoView({
+              behavior: "smooth"
+            });
+
+          } else {
+
+            openModal("signup");
+
+          }
+
+        };
+
+      }
+    );
+}
+
+
+/* =====================================================
+   AUTH STATE
+===================================================== */
 
 onAuthStateChanged(
   auth,
@@ -3203,7 +3040,6 @@ onAuthStateChanged(
 
       unsubscribeProfile =
         null;
-
     }
 
 
@@ -3221,7 +3057,6 @@ onAuthStateChanged(
       await loadWallet();
 
       return;
-
     }
 
 
@@ -3244,25 +3079,22 @@ onAuthStateChanged(
             if (snapshot.exists()) {
 
               currentUser = {
+
                 ...user,
+
                 profile:
                   snapshot.data()
-              };
 
-              console.log(
-                "Firestore profile loaded:",
-                currentUser.profile
-              );
+              };
 
             } else {
 
-              console.warn(
-                "Firebase Auth user exists, but Firestore profile does not exist."
-              );
-
               currentUser = {
+
                 ...user,
+
                 profile: {}
+
               };
 
             }
@@ -3274,18 +3106,6 @@ onAuthStateChanged(
 
             await loadWallet();
 
-
-            /*
-            =================================================
-            IMPORTANT:
-            Start the session checker whenever the user
-            is logged in.
-
-            Therefore, if they were OFFLINE during the
-            meeting, the checker runs immediately after
-            login and asks the completion question.
-            =================================================
-            */
 
             startSessionTimer();
 
@@ -3318,6 +3138,1219 @@ onAuthStateChanged(
       toast(
         firebaseError(error)
       );
+    }
+
+  }
+);
+/*
+=========================================================
+CONTINUED — DASHBOARD / SKILLS / WALLET / ACTIVITY
+=========================================================
+*/
+
+async function loadSkills() {
+  const container = $("#skillsGrid");
+
+  if (!container) return;
+
+  try {
+    const search =
+      getValue("#skillSearch")
+        .trim()
+        .toLowerCase();
+
+    const snapshot =
+      await getDocs(
+        collection(db, "users")
+      );
+
+    const users = [];
+
+    snapshot.forEach((document) => {
+      if (
+        auth.currentUser &&
+        document.id === auth.currentUser.uid
+      ) {
+        return;
+      }
+
+      const profile = document.data();
+
+      const teach =
+        Array.isArray(profile.teach)
+          ? profile.teach
+          : [];
+
+      const learn =
+        Array.isArray(profile.learn)
+          ? profile.learn
+          : [];
+
+      const searchable = [
+        profile.name || "",
+        profile.bio || "",
+        ...teach,
+        ...learn
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      if (
+        search &&
+        !searchable.includes(search)
+      ) {
+        return;
+      }
+
+      users.push({
+        id: document.id,
+        ...profile
+      });
+    });
+
+    if (!users.length) {
+      container.innerHTML = `
+        <div class="empty">
+          No matching SkillSwap members found.
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML =
+      users
+        .map((profile) => {
+          const teach =
+            Array.isArray(profile.teach)
+              ? profile.teach
+              : [];
+
+          const learn =
+            Array.isArray(profile.learn)
+              ? profile.learn
+              : [];
+
+          return `
+            <article class="skill-card">
+
+              <div class="avatar">
+                ${esc(
+                  initials(
+                    profile.name
+                  )
+                )}
+              </div>
+
+              <h3>
+                ${esc(
+                  profile.name ||
+                  "SkillSwap Member"
+                )}
+              </h3>
+
+              <p>
+                ${esc(
+                  profile.bio ||
+                  "Ready to exchange skills."
+                )}
+              </p>
+
+              <div class="skill-tags">
+                ${teach
+                  .map(
+                    (skill) =>
+                      `<span class="tag">
+                        Can teach: ${esc(skill)}
+                      </span>`
+                  )
+                  .join("")}
+              </div>
+
+              <div class="skill-tags">
+                ${learn
+                  .map(
+                    (skill) =>
+                      `<span class="tag">
+                        Wants to learn: ${esc(skill)}
+                      </span>`
+                  )
+                  .join("")}
+              </div>
+
+              <p>
+                <small>
+                  Availability:
+                  ${esc(
+                    profile.availability ||
+                    "Flexible"
+                  )}
+                </small>
+              </p>
+
+              ${
+                auth.currentUser
+                  ? `
+                    <button
+                      class="btn primary"
+                      data-session-user="${esc(
+                        profile.id
+                      )}"
+                    >
+                      Request Session
+                    </button>
+                  `
+                  : `
+                    <button
+                      class="btn primary"
+                      data-login-required
+                    >
+                      Log in to connect
+                    </button>
+                  `
+              }
+
+            </article>
+          `;
+        })
+        .join("");
+
+    container
+      .querySelectorAll(
+        "[data-session-user]"
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          async () => {
+            const uid =
+              button.dataset.sessionUser;
+
+            const profile =
+              await getProfile(uid);
+
+            if (!profile) {
+              toast(
+                "That profile could not be found."
+              );
+              return;
+            }
+
+            openModal(
+              "session",
+              {
+                id: uid,
+                ...profile
+              }
+            );
+          }
+        );
+      });
+
+    container
+      .querySelectorAll(
+        "[data-login-required]"
+      )
+      .forEach((button) => {
+        button.addEventListener(
+          "click",
+          () => {
+            openModal("login");
+          }
+        );
+      });
+
+  } catch (error) {
+    console.error(
+      "Load skills error:",
+      error
+    );
+
+    showError(
+      container,
+      error
+    );
+  }
+}
+
+
+/*
+=========================================================
+LOAD DASHBOARD
+=========================================================
+*/
+
+async function loadDashboard() {
+
+  const dashboard =
+    $("#dashboard");
+
+  if (!dashboard) return;
+
+  const loggedOut =
+    dashboard.querySelector(
+      "[data-logged-out]"
+    );
+
+  const loggedIn =
+    dashboard.querySelector(
+      "[data-logged-in]"
+    );
+
+  if (!auth.currentUser) {
+
+    if (loggedOut) {
+      loggedOut.style.display =
+        "";
+    }
+
+    if (loggedIn) {
+      loggedIn.style.display =
+        "none";
+    }
+
+    return;
+  }
+
+  if (loggedOut) {
+    loggedOut.style.display =
+      "none";
+  }
+
+  if (loggedIn) {
+    loggedIn.style.display =
+      "";
+  }
+
+  try {
+
+    const uid =
+      auth.currentUser.uid;
+
+    const profile =
+      await getProfile(uid);
+
+    const name =
+      profile?.name ||
+      auth.currentUser.displayName ||
+      "User";
+
+    /*
+    -------------------------------------------------------
+    BASIC PROFILE UI
+    -------------------------------------------------------
+    */
+
+    document
+      .querySelectorAll(
+        "[data-user-name]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            name;
+        }
+      );
+
+    document
+      .querySelectorAll(
+        "[data-user-points]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            Number(
+              profile?.points || 0
+            );
+        }
+      );
+
+    document
+      .querySelectorAll(
+        "[data-user-streak]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            Number(
+              profile?.streak || 0
+            );
+        }
+      );
+
+
+    /*
+    -------------------------------------------------------
+    LOAD SESSIONS
+    -------------------------------------------------------
+    */
+
+    const snapshot =
+      await getDocs(
+        query(
+          collection(
+            db,
+            "sessions"
+          ),
+          where(
+            "userIds",
+            "array-contains",
+            uid
+          )
+        )
+      );
+
+    const sessions =
+      snapshot.docs
+        .map(
+          (document) => ({
+            id:
+              document.id,
+
+            ...document.data()
+          })
+        )
+        .sort(
+          (a, b) => {
+
+            const dateA =
+              parseScheduledDate(
+                a.scheduledAt
+              )?.getTime() || 0;
+
+            const dateB =
+              parseScheduledDate(
+                b.scheduledAt
+              )?.getTime() || 0;
+
+            return dateB - dateA;
+          }
+        );
+
+
+    /*
+    -------------------------------------------------------
+    PENDING REQUESTS
+    -------------------------------------------------------
+    */
+
+    const incoming =
+      sessions.filter(
+        (session) =>
+          session.status ===
+            "pending" &&
+          session.createdBy !== uid
+      );
+
+    document
+      .querySelectorAll(
+        "[data-pending-count]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            incoming.length;
+        }
+      );
+
+
+    /*
+    -------------------------------------------------------
+    SESSION LIST
+    -------------------------------------------------------
+    */
+
+    const list =
+      $("#sessionList") ||
+      $("#sessionsList");
+
+    if (list) {
+
+      if (!sessions.length) {
+
+        list.innerHTML = `
+          <div class="empty">
+            No sessions yet.
+          </div>
+        `;
+
+      } else {
+
+        list.innerHTML =
+          sessions
+            .map(
+              (session) => {
+
+                const partnerId =
+                  session.userIds?.find(
+                    (id) =>
+                      id !== uid
+                  );
+
+                const isMine =
+                  session.createdBy ===
+                  uid;
+
+                const partner =
+                  session.partnerName ||
+                  "SkillSwap Partner";
+
+                const confirmations =
+                  session.confirmations ||
+                  {};
+
+                const myConfirmation =
+                  confirmations[uid];
+
+                const start =
+                  parseScheduledDate(
+                    session.scheduledAt
+                  );
+
+                const ended =
+                  start &&
+                  Date.now() >=
+                    start.getTime() +
+                    Number(
+                      session.duration ||
+                      60
+                    ) *
+                    60 *
+                    1000;
+
+                let statusText =
+                  session.status ||
+                  "pending";
+
+                if (
+                  session.status ===
+                  "pending"
+                ) {
+                  statusText =
+                    isMine
+                      ? "Waiting for approval"
+                      : "Approval needed";
+                }
+
+                if (
+                  session.status ===
+                  "scheduled"
+                ) {
+                  statusText =
+                    "Scheduled";
+                }
+
+                if (
+                  session.status ===
+                  "in_progress"
+                ) {
+                  statusText =
+                    "In progress";
+                }
+
+                if (
+                  session.status ===
+                  "completed"
+                ) {
+                  statusText =
+                    "Completed";
+                }
+
+                if (
+                  session.status ===
+                  "rejected"
+                ) {
+                  statusText =
+                    "Rejected";
+                }
+
+                return `
+                  <div
+                    class="session-card"
+                    data-session-card="${esc(
+                      session.id
+                    )}"
+                    style="cursor:pointer;"
+                  >
+
+                    <div>
+
+                      <h3>
+                        ${esc(
+                          session.topicA ||
+                          "Skill exchange"
+                        )}
+                      </h3>
+
+                      <p>
+                        ${esc(
+                          formatSessionDate(
+                            session.scheduledAt
+                          )
+                        )}
+                      </p>
+
+                      <small>
+                        ${Number(
+                          session.duration ||
+                          60
+                        )} minutes
+                      </small>
+
+                    </div>
+
+                    <div>
+
+                      <span class="tag">
+                        ${esc(
+                          statusText
+                        )}
+                      </span>
+
+                      ${
+                        session.status ===
+                          "completed"
+                          ? `
+                            <br>
+                            <small>
+                              ${
+                                myConfirmation ===
+                                true
+                                  ? "You confirmed"
+                                  : myConfirmation ===
+                                    false
+                                    ? "You declined"
+                                    : "Confirmation pending"
+                              }
+                            </small>
+                          `
+                          : ""
+                      }
+
+                    </div>
+
+                  </div>
+                `;
+              }
+            )
+            .join("");
+
+
+        /*
+        -----------------------------------------------------
+        SESSION CLICK
+        -----------------------------------------------------
+        */
+
+        list
+          .querySelectorAll(
+            "[data-session-card]"
+          )
+          .forEach(
+            (card) => {
+
+              card.addEventListener(
+                "click",
+                async () => {
+
+                  const sessionId =
+                    card.dataset
+                      .sessionCard;
+
+                  const session =
+                    sessions.find(
+                      (item) =>
+                        item.id ===
+                        sessionId
+                    );
+
+                  if (!session) {
+                    return;
+                  }
+
+                  const partnerId =
+                    session.userIds?.find(
+                      (id) =>
+                        id !== uid
+                    );
+
+                  const partnerProfile =
+                    partnerId
+                      ? await getProfile(
+                          partnerId
+                        )
+                      : null;
+
+                  /*
+                  The contact information
+                  belongs only to this session.
+                  */
+
+                  openModal(
+                    "sessionDetails",
+                    {
+                      ...session,
+
+                      partnerName:
+                        partnerProfile?.name ||
+                        "SkillSwap Partner"
+                    }
+                  );
+
+                }
+              );
+
+            }
+          );
+
+      }
+
+    }
+
+
+    /*
+    -------------------------------------------------------
+    QUICK ACTIONS / STATS
+    -------------------------------------------------------
+    */
+
+    const activeSessions =
+      sessions.filter(
+        (session) =>
+          session.status ===
+            "scheduled" ||
+          session.status ===
+            "in_progress"
+      );
+
+    document
+      .querySelectorAll(
+        "[data-active-sessions]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            activeSessions.length;
+        }
+      );
+
+    document
+      .querySelectorAll(
+        "[data-completed-sessions]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            sessions.filter(
+              (session) =>
+                session.status ===
+                "completed"
+            ).length;
+        }
+      );
+
+  } catch (error) {
+
+    console.error(
+      "Load dashboard error:",
+      error
+    );
+
+  }
+
+}
+
+
+/*
+=========================================================
+LOAD WALLET
+=========================================================
+*/
+
+async function loadWallet() {
+
+  if (!auth.currentUser) {
+    return;
+  }
+
+  try {
+
+    const profile =
+      await getProfile(
+        auth.currentUser.uid
+      );
+
+    const points =
+      Number(
+        profile?.points || 0
+      );
+
+    document
+      .querySelectorAll(
+        "[data-wallet-points]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            points;
+        }
+      );
+
+    document
+      .querySelectorAll(
+        "[data-user-points]"
+      )
+      .forEach(
+        (element) => {
+          element.textContent =
+            points;
+        }
+      );
+
+  } catch (error) {
+
+    console.error(
+      "Wallet error:",
+      error
+    );
+
+  }
+
+}
+
+
+/*
+=========================================================
+LOAD ACTIVITY
+=========================================================
+*/
+
+async function loadActivity() {
+
+  const container =
+    $("#activityList");
+
+  if (!container) {
+    return;
+  }
+
+  if (!auth.currentUser) {
+
+    container.innerHTML = `
+      <div class="empty">
+        Please log in to see your activity.
+      </div>
+    `;
+
+    return;
+  }
+
+  try {
+
+    const snapshot =
+      await getDocs(
+        query(
+          collection(
+            db,
+            "pointActivity"
+          ),
+          where(
+            "userId",
+            "==",
+            auth.currentUser.uid
+          )
+        )
+      );
+
+    const activity =
+      snapshot.docs
+        .map(
+          (document) => ({
+            id:
+              document.id,
+
+            ...document.data()
+          })
+        )
+        .sort(
+          (a, b) => {
+
+            const aTime =
+              a.createdAt?.toMillis?.() ||
+              0;
+
+            const bTime =
+              b.createdAt?.toMillis?.() ||
+              0;
+
+            return bTime - aTime;
+          }
+        );
+
+    if (!activity.length) {
+
+      container.innerHTML = `
+        <div class="empty">
+          No reward activity yet.
+        </div>
+      `;
+
+      return;
+    }
+
+    container.innerHTML =
+      activity
+        .map(
+          (item) => `
+            <div class="activity-item">
+
+              <strong>
+                ${esc(
+                  item.description ||
+                  "SkillSwap reward"
+                )}
+              </strong>
+
+              <span>
+                +${Number(
+                  item.points || 0
+                )} points
+              </span>
+
+            </div>
+          `
+        )
+        .join("");
+
+  } catch (error) {
+
+    console.error(
+      "Activity error:",
+      error
+    );
+
+    container.innerHTML = `
+      <div class="error">
+        ${esc(
+          firebaseError(error)
+        )}
+      </div>
+    `;
+
+  }
+
+}
+
+
+/*
+=========================================================
+OPEN PROFILE / WALLET / ACTIVITY BUTTONS
+=========================================================
+*/
+
+document
+  .querySelectorAll(
+    "[data-open-profile]"
+  )
+  .forEach(
+    (button) => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          if (!auth.currentUser) {
+            openModal("login");
+            return;
+          }
+
+          openModal("profile");
+
+        }
+      );
+
+    }
+  );
+
+
+document
+  .querySelectorAll(
+    "[data-open-activity]"
+  )
+  .forEach(
+    (button) => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          if (!auth.currentUser) {
+            openModal("login");
+            return;
+          }
+
+          openModal("activity");
+
+        }
+      );
+
+    }
+  );
+
+
+document
+  .querySelectorAll(
+    "[data-open-redeem]"
+  )
+  .forEach(
+    (button) => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          if (!auth.currentUser) {
+            openModal("login");
+            return;
+          }
+
+          openModal("redeem");
+
+        }
+      );
+
+    }
+  );
+
+
+/*
+=========================================================
+GENERAL SESSION BUTTON
+=========================================================
+*/
+
+document
+  .querySelectorAll(
+    "[data-create-session]"
+  )
+  .forEach(
+    (button) => {
+
+      button.addEventListener(
+        "click",
+        () => {
+
+          if (!auth.currentUser) {
+
+            openModal("login");
+
+            return;
+
+          }
+
+          const partnerId =
+            button.dataset
+              .partnerId;
+
+          if (!partnerId) {
+
+            toast(
+              "Please select a SkillSwap partner first."
+            );
+
+            return;
+
+          }
+
+          getProfile(
+            partnerId
+          ).then(
+            (profile) => {
+
+              if (!profile) {
+
+                toast(
+                  "Partner not found."
+                );
+
+                return;
+
+              }
+
+              openModal(
+                "session",
+                {
+                  id:
+                    partnerId,
+
+                  ...profile
+                }
+              );
+
+            }
+          );
+
+        }
+      );
+
+    }
+  );
+
+
+/*
+=========================================================
+AUTO REFRESH
+=========================================================
+*/
+
+let dashboardRefreshTimer =
+  null;
+
+function startDashboardRefresh() {
+
+  if (dashboardRefreshTimer) {
+    clearInterval(
+      dashboardRefreshTimer
+    );
+  }
+
+  dashboardRefreshTimer =
+    setInterval(
+      async () => {
+
+        if (!auth.currentUser) {
+          return;
+        }
+
+        await loadDashboard();
+        await loadWallet();
+
+      },
+      30000
+    );
+
+}
+
+function stopDashboardRefresh() {
+
+  if (
+    dashboardRefreshTimer
+  ) {
+
+    clearInterval(
+      dashboardRefreshTimer
+    );
+
+    dashboardRefreshTimer =
+      null;
+
+  }
+
+}
+
+
+/*
+=========================================================
+FINAL AUTH INITIALIZATION
+=========================================================
+*/
+
+onAuthStateChanged(
+  auth,
+  async (user) => {
+
+    /*
+    The listener above handles the profile.
+    This second listener keeps the dashboard
+    refresh state synchronized.
+    */
+
+    if (user) {
+
+      startDashboardRefresh();
+
+    } else {
+
+      stopDashboardRefresh();
+
+    }
+
+  }
+);
+
+
+/*
+=========================================================
+CLEANUP
+=========================================================
+*/
+
+window.addEventListener(
+  "beforeunload",
+  () => {
+
+    stopSessionTimer();
+    stopDashboardRefresh();
+
+    if (unsubscribeProfile) {
+
+      unsubscribeProfile();
+
+      unsubscribeProfile =
+        null;
+
+    }
+
+  }
+);
+
+
+/*
+=========================================================
+GLOBAL HELPERS
+=========================================================
+*/
+
+window.SkillSwap = {
+
+  openLogin: () =>
+    openModal("login"),
+
+  openSignup: () =>
+    openModal("signup"),
+
+  openProfile: () =>
+    openModal("profile"),
+
+  openActivity: () =>
+    openModal("activity"),
+
+  refresh: async () => {
+
+    await loadSkills();
+    await loadDashboard();
+    await loadWallet();
+
+  }
+
+};
+
+
+/*
+=========================================================
+INITIAL PAGE LOAD
+=========================================================
+*/
+
+document.addEventListener(
+  "DOMContentLoaded",
+  async () => {
+
+    await loadSkills();
+
+    if (auth.currentUser) {
+
+      await loadDashboard();
+      await loadWallet();
 
     }
 

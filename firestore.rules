@@ -7,33 +7,58 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(uid) {
+    function isUser(uid) {
       return signedIn() && request.auth.uid == uid;
     }
 
+    function isParticipant() {
+      return signedIn()
+        && request.auth.uid in resource.data.userIds;
+    }
+
+    function isParticipantOnCreate() {
+      return signedIn()
+        && request.auth.uid in request.resource.data.userIds;
+    }
+
+    // ---------------------------------------------------------
     // USERS
+    // ---------------------------------------------------------
     match /users/{uid} {
+
       allow read: if signedIn();
 
-      allow create: if isOwner(uid)
+      allow create: if isUser(uid)
         && request.resource.data.points == 0
         && request.resource.data.streak == 0;
 
-      allow update: if isOwner(uid)
-        && request.resource.data.points == resource.data.points
-        && request.resource.data.streak == resource.data.streak;
+      // Users can edit their profile, but NEVER their points/streak.
+      allow update: if isUser(uid)
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly([
+            'name',
+            'teach',
+            'learn',
+            'availability',
+            'bio'
+          ]);
 
-      allow delete: if isOwner(uid);
+      allow delete: if isUser(uid);
     }
 
+    // ---------------------------------------------------------
     // CONNECTIONS
+    // ---------------------------------------------------------
     match /connections/{id} {
+
       allow read: if signedIn()
         && request.auth.uid in resource.data.userIds;
 
       allow create: if signedIn()
         && request.auth.uid in request.resource.data.userIds
         && request.resource.data.userIds.size() == 2
+        && request.resource.data.initiator == request.auth.uid
         && request.resource.data.status == 'pending';
 
       allow update: if signedIn()
@@ -43,28 +68,99 @@ service cloud.firestore {
         && request.auth.uid in resource.data.userIds;
     }
 
+    // ---------------------------------------------------------
     // SESSIONS
+    // ---------------------------------------------------------
     match /sessions/{id} {
+
+      // Only the two participants can see the session/contact info.
       allow read: if signedIn()
         && request.auth.uid in resource.data.userIds;
 
+      // A session request is created by the requester.
       allow create: if signedIn()
-        && request.auth.uid == request.resource.data.createdBy
+        && request.resource.data.createdBy == request.auth.uid
         && request.auth.uid in request.resource.data.userIds
-        && request.resource.data.userIds.size() == 2;
+        && request.resource.data.userIds.size() == 2
+        && request.resource.data.status == 'pending'
+        && request.resource.data.duration in [30, 60, 90, 120]
+        && request.resource.data.startAt is timestamp
+        && request.resource.data.endAt is timestamp
+        && request.resource.data.endAt > request.resource.data.startAt;
 
-      allow update: if signedIn()
-        && request.auth.uid in resource.data.userIds
+      // Approval / rejection by the invited participant.
+      allow update: if isParticipant()
+        && resource.data.status == 'pending'
+        && request.auth.uid != resource.data.createdBy
         && request.resource.data.diff(resource.data)
           .affectedKeys()
-          .hasOnly(['status', 'completedAt']);
+          .hasOnly([
+            'status',
+            'approvedBy',
+            'approvedAt'
+          ])
+        && (
+          (
+            request.resource.data.status == 'scheduled'
+            && request.resource.data.approvedBy == request.auth.uid
+            && request.resource.data.approvedAt is timestamp
+          )
+          ||
+          (
+            request.resource.data.status == 'rejected'
+            && request.resource.data.approvedBy == null
+          )
+        );
 
-      allow delete: if signedIn()
-        && request.auth.uid == resource.data.createdBy;
+      // Start notification: a participant may mark ONLY their
+      // own start notification as shown.
+      allow update: if isParticipant()
+        && resource.data.status == 'scheduled'
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['startNotifications'])
+        && request.resource.data.startNotifications[request.auth.uid] == true
+        && request.resource.data.startNotifications[
+          request.auth.uid == resource.data.userIds[0]
+            ? resource.data.userIds[1]
+            : resource.data.userIds[0]
+        ] == resource.data.startNotifications[
+          request.auth.uid == resource.data.userIds[0]
+            ? resource.data.userIds[1]
+            : resource.data.userIds[0]
+        ];
+
+      // Completion confirmation:
+      // each participant can change only their own confirmation.
+      // Reward status / points are backend-only.
+      allow update: if isParticipant()
+        && request.time >= resource.data.endAt
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly([
+            'confirmations',
+            'completedAt'
+          ])
+        && request.resource.data.confirmations[request.auth.uid] is bool
+        && request.resource.data.confirmations[
+          request.auth.uid == resource.data.userIds[0]
+            ? resource.data.userIds[1]
+            : resource.data.userIds[0]
+        ] == resource.data.confirmations[
+          request.auth.uid == resource.data.userIds[0]
+            ? resource.data.userIds[1]
+            : resource.data.userIds[0]
+        ];
+
+      // Nobody can delete sessions from the client.
+      allow delete: if false;
     }
 
+    // ---------------------------------------------------------
     // ASSIGNMENTS
+    // ---------------------------------------------------------
     match /assignments/{id} {
+
       allow read: if signedIn()
         && request.auth.uid == resource.data.userId;
 
@@ -75,31 +171,41 @@ service cloud.firestore {
         && request.auth.uid == resource.data.userId
         && request.resource.data.diff(resource.data)
           .affectedKeys()
-          .hasOnly(['completed', 'completedAt']);
+          .hasOnly([
+            'completed',
+            'completedAt'
+          ]);
 
       allow delete: if signedIn()
         && request.auth.uid == resource.data.userId;
     }
 
+    // ---------------------------------------------------------
     // POINT EVENTS
-    // Only Cloud Functions/server-side code can write these.
+    // ---------------------------------------------------------
+    // Only Cloud Functions/Admin SDK can create reward events.
     match /pointEvents/{id} {
+
       allow read: if signedIn()
         && request.auth.uid == resource.data.userId;
 
       allow write: if false;
     }
 
+    // ---------------------------------------------------------
     // REDEMPTIONS
-    // Reserved for server-side payout processing.
+    // ---------------------------------------------------------
     match /redemptions/{id} {
+
       allow read: if signedIn()
         && request.auth.uid == resource.data.userId;
 
-      allow create, update, delete: if false;
+      allow write: if false;
     }
 
-    // DENY EVERYTHING ELSE
+    // ---------------------------------------------------------
+    // EVERYTHING ELSE
+    // ---------------------------------------------------------
     match /{document=**} {
       allow read, write: if false;
     }

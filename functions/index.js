@@ -1,43 +1,418 @@
-const {onDocumentUpdated} = require('firebase-functions/v2/firestore');
-const {setGlobalOptions} = require('firebase-functions/v2');
-const admin = require('firebase-admin');
-admin.initializeApp();
-const db=admin.firestore();
-setGlobalOptions({maxInstances:10,region:'asia-south1'});
+const {
+  onDocumentUpdated
+} = require("firebase-functions/v2/firestore");
 
-async function award(uid, points, reason, sourceId){
-  const userRef=db.doc(`users/${uid}`);
-  const eventRef=db.collection('pointEvents').doc();
-  await db.runTransaction(async tx=>{
-    const uSnap=await tx.get(userRef);
-    if(!uSnap.exists) return;
-    const u=uSnap.data();
-    const today=new Date().toISOString().slice(0,10);
-    const last=u.lastActivity||null;
-    let streak=Number(u.streak||0);
-    let bonus=0;
-    if(last!==today){
-      const yesterday=new Date(Date.now()-86400000).toISOString().slice(0,10);
-      streak=last===yesterday?streak+1:1;
-      if(streak%7===0) bonus=10;
-    }
-    tx.update(userRef,{points:Number(u.points||0)+points+bonus,streak,lastActivity:today});
-    tx.set(eventRef,{userId:uid,points,reason,sourceId,createdAt:admin.firestore.FieldValue.serverTimestamp()});
-    if(bonus){
-      const bonusRef=db.collection('pointEvents').doc();
-      tx.set(bonusRef,{userId:uid,points:bonus,reason:'7-day learning streak bonus',sourceId,createdAt:admin.firestore.FieldValue.serverTimestamp()});
-    }
-  });
+const {
+  initializeApp
+} = require("firebase-admin/app");
+
+const {
+  getFirestore,
+  FieldValue
+} = require("firebase-admin/firestore");
+
+initializeApp();
+
+const db = getFirestore();
+
+
+/*
+=========================================================
+REWARD CONFIG
+=========================================================
+*/
+
+const POINTS_PER_SESSION = 100;
+
+
+/*
+=========================================================
+HELPER
+=========================================================
+*/
+
+function getSessionEndTime(session) {
+
+  if (!session?.scheduledAt) {
+    return null;
+  }
+
+  let startTime;
+
+  if (
+    typeof session.scheduledAt.toMillis ===
+    "function"
+  ) {
+
+    startTime =
+      session.scheduledAt.toMillis();
+
+  } else {
+
+    startTime =
+      new Date(
+        session.scheduledAt
+      ).getTime();
+
+  }
+
+  if (
+    !Number.isFinite(startTime)
+  ) {
+    return null;
+  }
+
+  const duration =
+    Number(
+      session.duration || 60
+    );
+
+  return (
+    startTime +
+    duration *
+    60 *
+    1000
+  );
+
 }
 
-exports.rewardCompletedSession=onDocumentUpdated('sessions/{sessionId}',async event=>{
-  const before=event.data.before.data(), after=event.data.after.data();
-  if(before.status==='completed'||after.status!=='completed') return;
-  for(const uid of after.userIds||[]) await award(uid,50,'Completed learning session',event.params.sessionId);
-});
 
-exports.rewardCompletedAssignment=onDocumentUpdated('assignments/{assignmentId}',async event=>{
-  const before=event.data.before.data(), after=event.data.after.data();
-  if(before.completed===true||after.completed!==true) return;
-  await award(after.userId,25,'Completed assignment',event.params.assignmentId);
-});
+/*
+=========================================================
+PROCESS SESSION REWARD
+=========================================================
+*/
+
+exports.processSessionReward =
+  onDocumentUpdated(
+    "sessions/{sessionId}",
+
+    async (event) => {
+
+      const before =
+        event.data?.before?.data();
+
+      const after =
+        event.data?.after?.data();
+
+
+      if (
+        !before ||
+        !after
+      ) {
+        return;
+      }
+
+
+      /*
+      =====================================================
+      BASIC SESSION CHECKS
+      =====================================================
+      */
+
+      const userIds =
+        Array.isArray(after.userIds)
+          ? after.userIds
+          : [];
+
+
+      if (
+        userIds.length !== 2
+      ) {
+        return;
+      }
+
+
+      const confirmations =
+        after.confirmations ||
+        {};
+
+
+      const firstUserConfirmed =
+        confirmations[
+          userIds[0]
+        ] === true;
+
+
+      const secondUserConfirmed =
+        confirmations[
+          userIds[1]
+        ] === true;
+
+
+      /*
+      =====================================================
+      BOTH MUST CONFIRM YES
+      =====================================================
+      */
+
+      if (
+        !firstUserConfirmed ||
+        !secondUserConfirmed
+      ) {
+
+        /*
+        If either user said NO,
+        this session can never receive
+        a reward.
+        */
+
+        if (
+          confirmations[userIds[0]] === false ||
+          confirmations[userIds[1]] === false
+        ) {
+
+          if (
+            after.rewardStatus !==
+            "not_eligible"
+          ) {
+
+            await event.data.after.ref.update(
+              {
+                rewardStatus:
+                  "not_eligible"
+              }
+            );
+
+          }
+
+        }
+
+        return;
+
+      }
+
+
+      /*
+      =====================================================
+      ALREADY REWARDED
+      =====================================================
+      */
+
+      if (
+        after.pointsAwarded === true ||
+        after.rewardStatus === "awarded"
+      ) {
+
+        return;
+
+      }
+
+
+      /*
+      =====================================================
+      SESSION MUST ACTUALLY BE OVER
+      =====================================================
+      */
+
+      const endTime =
+        getSessionEndTime(
+          after
+        );
+
+
+      if (
+        !endTime ||
+        Date.now() < endTime
+      ) {
+
+        return;
+
+      }
+
+
+      /*
+      =====================================================
+      TRANSACTION
+      =====================================================
+      */
+
+      const sessionRef =
+        event.data.after.ref;
+
+
+      await db.runTransaction(
+        async (transaction) => {
+
+          const freshSnapshot =
+            await transaction.get(
+              sessionRef
+            );
+
+
+          if (
+            !freshSnapshot.exists
+          ) {
+            return;
+          }
+
+
+          const session =
+            freshSnapshot.data();
+
+
+          const ids =
+            Array.isArray(
+              session.userIds
+            )
+              ? session.userIds
+              : [];
+
+
+          const confirms =
+            session.confirmations ||
+            {};
+
+
+          /*
+          Re-check everything inside
+          the transaction.
+          */
+
+          if (
+            ids.length !== 2
+          ) {
+            return;
+          }
+
+
+          if (
+            confirms[ids[0]] !== true ||
+            confirms[ids[1]] !== true
+          ) {
+            return;
+          }
+
+
+          if (
+            session.pointsAwarded === true ||
+            session.rewardStatus === "awarded"
+          ) {
+            return;
+          }
+
+
+          const freshEndTime =
+            getSessionEndTime(
+              session
+            );
+
+
+          if (
+            !freshEndTime ||
+            Date.now() < freshEndTime
+          ) {
+            return;
+          }
+
+
+          /*
+          =================================================
+          USER REFERENCES
+          =================================================
+          */
+
+          const userRefs =
+            ids.map(
+              (uid) =>
+                db
+                  .collection("users")
+                  .doc(uid)
+            );
+
+
+          /*
+          =================================================
+          POINT EVENT REFERENCES
+          =================================================
+          */
+
+          const pointEventRefs =
+            ids.map(
+              () =>
+                db
+                  .collection("pointEvents")
+                  .doc()
+            );
+
+
+          /*
+          =================================================
+          GIVE POINTS TO BOTH USERS
+          =================================================
+          */
+
+          for (
+            let i = 0;
+            i < userRefs.length;
+            i++
+          ) {
+
+            transaction.update(
+              userRefs[i],
+              {
+
+                points:
+                  FieldValue.increment(
+                    POINTS_PER_SESSION
+                  ),
+
+                lastActivity:
+                  FieldValue.serverTimestamp()
+
+              }
+            );
+
+
+            transaction.set(
+              pointEventRefs[i],
+              {
+
+                userId:
+                  ids[i],
+
+                sessionId:
+                  event.data.after.id,
+
+                points:
+                  POINTS_PER_SESSION,
+
+                reason:
+                  "Completed SkillSwap session",
+
+                createdAt:
+                  FieldValue.serverTimestamp()
+
+              }
+            );
+
+          }
+
+
+          /*
+          =================================================
+          MARK SESSION AS REWARDED
+          =================================================
+          */
+
+          transaction.update(
+            sessionRef,
+            {
+
+              rewardStatus:
+                "awarded",
+
+              pointsAwarded:
+                true,
+
+              pointsAwardedAt:
+                FieldValue.serverTimestamp()
+
+            }
+          );
+
+        }
+      );
+
+    }
+  );
