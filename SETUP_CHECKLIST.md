@@ -1,8 +1,8 @@
 # SkillSwap launch checklist
 
-- [ ] Create Firebase project
-- [ ] Enable Email/Password Authentication
-- [ ] Create Firestore database
+- [Y] Create Firebase project
+- [Y] Enable Email/Password Authentication
+- [Y] Create Firestore database
 - [ ] Paste Firebase web config into `public/firebase-config.js`
 - [ ] Install Firebase CLI
 - [ ] `firebase login`
