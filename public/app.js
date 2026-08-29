@@ -35,6 +35,17 @@ let unsubscribeProfile = null;
 
 const $ = (selector) => document.querySelector(selector);
 
+const getValue = (selector, fallback = "") => {
+  const element = $(selector);
+
+  if (!element) {
+    console.warn(`Element not found: ${selector}`);
+    return fallback;
+  }
+
+  return element.value ?? fallback;
+};
+
 const esc = (value) =>
   String(value ?? "").replace(/[&<>'"]/g, (char) => ({
     "&": "&amp;",
@@ -109,6 +120,7 @@ function firebaseError(error) {
   return "Something went wrong. Please try again.";
 }
 
+
 /* =========================================================
    MODALS
 ========================================================= */
@@ -144,10 +156,16 @@ $("#modalBackdrop")?.addEventListener("click", (event) => {
   }
 });
 
+
 function renderModal(type, data = {}) {
   const container = $("#modalContent");
 
   if (!container) return;
+
+
+  /* =========================
+     LOGIN
+  ========================= */
 
   if (type === "login") {
     container.innerHTML = `
@@ -190,6 +208,11 @@ function renderModal(type, data = {}) {
       </form>
     `;
   }
+
+
+  /* =========================
+     SIGNUP
+  ========================= */
 
   if (type === "signup") {
     container.innerHTML = `
@@ -291,6 +314,11 @@ function renderModal(type, data = {}) {
     `;
   }
 
+
+  /* =========================
+     PROFILE
+  ========================= */
+
   if (type === "profile") {
     const profile = currentUser?.profile || {};
 
@@ -389,6 +417,11 @@ function renderModal(type, data = {}) {
     `;
   }
 
+
+  /* =========================
+     SESSION
+  ========================= */
+
   if (type === "session") {
     container.innerHTML = `
       <h2>Schedule a session</h2>
@@ -471,7 +504,7 @@ function renderModal(type, data = {}) {
           <label>Contact Details</label>
           <textarea
             id="ContactDetails"
-            placeholder="Please Type in you contact details here, such as your email or phone number, so your partner can reach you."
+            placeholder="Please type your contact details here, such as your email or phone number, so your partner can reach you."
           ></textarea>
         </div>
 
@@ -484,6 +517,11 @@ function renderModal(type, data = {}) {
       </form>
     `;
   }
+
+
+  /* =========================
+     REDEEM
+  ========================= */
 
   if (type === "redeem") {
     container.innerHTML = `
@@ -508,6 +546,11 @@ function renderModal(type, data = {}) {
     `;
   }
 
+
+  /* =========================
+     ACTIVITY
+  ========================= */
+
   if (type === "activity") {
     container.innerHTML = `
       <h2>Reward activity</h2>
@@ -522,6 +565,11 @@ function renderModal(type, data = {}) {
   bindModal(type, data);
 }
 
+
+/* =========================================================
+   MODAL BINDINGS
+========================================================= */
+
 function bindModal(type, data) {
 
   $("#switchAuth")?.addEventListener("click", (event) => {
@@ -533,6 +581,11 @@ function bindModal(type, data) {
         : "login"
     );
   });
+
+
+  /* =========================
+     AUTH
+  ========================= */
 
   $("#authForm")?.addEventListener("submit", async (event) => {
 
@@ -548,10 +601,13 @@ function bindModal(type, data) {
 
       if (type === "login") {
 
+        const email = getValue("#email").trim();
+        const password = getValue("#password");
+
         await signInWithEmailAndPassword(
           auth,
-          $("#email").value.trim(),
-          $("#password").value
+          email,
+          password
         );
 
         closeModal();
@@ -559,12 +615,12 @@ function bindModal(type, data) {
 
       } else {
 
-        const name = $("#name").value.trim();
-        const email = $("#email").value.trim();
-        const password = $("#password").value;
+        const name = getValue("#name").trim();
+        const email = getValue("#email").trim();
+        const password = getValue("#password");
 
-        const teach = split($("#teach").value);
-        const learn = split($("#learn").value);
+        const teach = split(getValue("#teach"));
+        const learn = split(getValue("#learn"));
 
         const credential =
           await createUserWithEmailAndPassword(
@@ -587,8 +643,8 @@ function bindModal(type, data) {
             email: credential.user.email,
             teach,
             learn,
-            availability: $("#availability").value,
-            bio: $("#bio").value.trim(),
+            availability: getValue("#availability"),
+            bio: getValue("#bio").trim(),
 
             points: 0,
             streak: 0,
@@ -610,6 +666,11 @@ function bindModal(type, data) {
 
   });
 
+
+  /* =========================
+     PROFILE
+  ========================= */
+
   $("#profileForm")?.addEventListener("submit", async (event) => {
 
     event.preventDefault();
@@ -629,22 +690,23 @@ function bindModal(type, data) {
     try {
 
       const uid = auth.currentUser.uid;
+      const name = getValue("#name").trim();
 
       await updateDoc(
         doc(db, "users", uid),
         {
-          name: $("#name").value.trim(),
-          teach: split($("#teach").value),
-          learn: split($("#learn").value),
-          availability: $("#availability").value,
-          bio: $("#bio").value.trim()
+          name,
+          teach: split(getValue("#teach")),
+          learn: split(getValue("#learn")),
+          availability: getValue("#availability"),
+          bio: getValue("#bio").trim()
         }
       );
 
       await updateProfile(
         auth.currentUser,
         {
-          displayName: $("#name").value.trim()
+          displayName: name
         }
       );
 
@@ -662,6 +724,11 @@ function bindModal(type, data) {
 
   });
 
+
+  /* =========================
+     CREATE SESSION
+  ========================= */
+
   $("#sessionForm")?.addEventListener("submit", async (event) => {
 
     event.preventDefault();
@@ -677,7 +744,62 @@ function bindModal(type, data) {
       return;
     }
 
+    /*
+      IMPORTANT FIX:
+
+      The old code tried to read:
+
+      #assignmentDescription
+
+      but that input does NOT exist in your session form.
+
+      We now only read fields that actually exist.
+    */
+
     try {
+
+      const scheduledAt = getValue("#scheduledAt").trim();
+      const duration = Number(getValue("#duration", "60"));
+      const topicA = getValue("#topicA").trim();
+      const topicB = getValue("#topicB").trim();
+      const assignmentTitle = getValue("#assignmentTitle").trim();
+
+      /*
+        Your HTML uses:
+
+        id="ContactDetails"
+
+        so we use that exact ID.
+      */
+      const contactDetails =
+        getValue("#ContactDetails").trim();
+
+
+      if (!scheduledAt) {
+        toast("Please choose a date and time.");
+        return;
+      }
+
+      if (!topicA) {
+        toast("Please enter your topic.");
+        return;
+      }
+
+      if (!topicB) {
+        toast("Please enter your partner's topic.");
+        return;
+      }
+
+      if (!data?.id) {
+        toast("The selected partner could not be found.");
+        console.error("Missing partner data:", data);
+        return;
+      }
+
+
+      /* =========================
+         CREATE SESSION
+      ========================= */
 
       const sessionReference = await addDoc(
         collection(db, "sessions"),
@@ -689,14 +811,19 @@ function bindModal(type, data) {
 
           createdBy: auth.currentUser.uid,
 
-          scheduledAt: $("#scheduledAt").value,
+          scheduledAt,
 
-          duration: Number(
-            $("#duration").value
-          ),
+          duration,
 
-          topicA: $("#topicA").value.trim(),
-          topicB: $("#topicB").value.trim(),
+          topicA,
+          topicB,
+
+          /*
+            Save the contact details so the
+            session/partner can access them
+            according to your Firestore rules.
+          */
+          contactDetails,
 
           status: "scheduled",
 
@@ -704,8 +831,11 @@ function bindModal(type, data) {
         }
       );
 
-      const assignmentTitle =
-        $("#assignmentTitle").value.trim();
+
+      /* =========================
+         CREATE ASSIGNMENT
+         ONLY IF TITLE EXISTS
+      ========================= */
 
       if (assignmentTitle) {
 
@@ -713,13 +843,19 @@ function bindModal(type, data) {
           collection(db, "assignments"),
           {
             sessionId: sessionReference.id,
+
             userId: auth.currentUser.uid,
+
             partnerId: data.id,
 
             title: assignmentTitle,
 
-            description:
-              $("#assignmentDescription").value.trim(),
+            /*
+              There is no assignmentDescription
+              field in your HTML, so don't try
+              to read it.
+            */
+            description: "",
 
             completed: false,
 
@@ -727,6 +863,7 @@ function bindModal(type, data) {
           }
         );
       }
+
 
       closeModal();
 
@@ -736,15 +873,30 @@ function bindModal(type, data) {
 
     } catch (error) {
 
+      console.error(
+        "Create session error:",
+        error
+      );
+
       showError(errorElement, error);
 
     }
 
   });
 
+
+  /* =========================
+     ACTIVITY
+  ========================= */
+
   if (type === "activity") {
     loadActivity();
   }
+
+
+  /* =========================
+     REDEMPTION
+  ========================= */
 
   document
     .querySelectorAll("[data-redeem]")
@@ -778,13 +930,17 @@ function updateNavigation(user) {
     $("#ctaSignup")
   ];
 
+
   loginButtons.forEach((button) => {
+
     if (!button) return;
 
     button.textContent = user
       ? "Log out"
       : "Log in";
+
   });
+
 
   signupButtons.forEach((button) => {
 
@@ -809,7 +965,7 @@ function updateNavigation(user) {
 
   });
 
-  // Change the desktop login button into logout.
+
   $("#loginBtn").onclick = async () => {
 
     if (auth.currentUser) {
@@ -824,7 +980,7 @@ function updateNavigation(user) {
 
   };
 
-  // Change the mobile login button into logout.
+
   $("#mobileLogin").onclick = async () => {
 
     if (auth.currentUser) {
@@ -839,7 +995,7 @@ function updateNavigation(user) {
 
   };
 
-  // Dashboard behavior for signup buttons after login.
+
   [
     $("#signupBtn"),
     $("#mobileSignup"),
@@ -868,6 +1024,7 @@ function updateNavigation(user) {
     });
 
 }
+
 
 async function logout() {
 
@@ -906,6 +1063,7 @@ async function getProfile(uid) {
 
   return snapshot.data();
 }
+
 
 async function refreshLoggedInUser() {
 
@@ -950,7 +1108,7 @@ async function refreshLoggedInUser() {
 async function loadSkills() {
 
   const search =
-    ($("#skillSearch")?.value || "")
+    (getValue("#skillSearch") || "")
       .trim()
       .toLowerCase();
 
@@ -970,6 +1128,7 @@ async function loadSkills() {
     grid.innerHTML = "";
 
     return;
+
   }
 
   try {
@@ -1002,7 +1161,9 @@ async function loadSkills() {
 
           return !search ||
             searchable.includes(search);
+
         });
+
 
     if (!users.length) {
 
@@ -1015,13 +1176,16 @@ async function loadSkills() {
       grid.innerHTML = "";
 
       return;
+
     }
+
 
     state.style.display = "none";
 
     grid.innerHTML =
       users
         .map((user) => `
+
           <article class="skill-card">
 
             <div class="skill-card-top">
@@ -1093,8 +1257,10 @@ async function loadSkills() {
             </button>
 
           </article>
+
         `)
         .join("");
+
 
     document
       .querySelectorAll("[data-connect]")
@@ -1117,6 +1283,7 @@ async function loadSkills() {
         };
 
       });
+
 
   } catch (error) {
 
@@ -1150,11 +1317,11 @@ async function connectAndSchedule(user) {
     openModal("login");
 
     return;
+
   }
 
   try {
 
-    // Check whether a connection already exists.
     const existingSnapshot =
       await getDocs(
         query(
@@ -1167,6 +1334,7 @@ async function connectAndSchedule(user) {
         )
       );
 
+
     const alreadyConnected =
       existingSnapshot.docs.some((document) => {
 
@@ -1178,6 +1346,7 @@ async function connectAndSchedule(user) {
         );
 
       });
+
 
     if (!alreadyConnected) {
 
@@ -1207,7 +1376,9 @@ async function connectAndSchedule(user) {
 
     }
 
+
     openModal("session", user);
+
 
   } catch (error) {
 
@@ -1254,14 +1425,18 @@ async function loadDashboard() {
     }
 
     return;
+
   }
+
 
   if ($("#profileBtn")) {
     $("#profileBtn").style.display = "block";
   }
 
+
   const profile =
     currentUser.profile || {};
+
 
   try {
 
@@ -1306,12 +1481,14 @@ async function loadDashboard() {
 
     ]);
 
+
     const sessions =
       sessionsSnapshot.docs
         .map((document) => ({
           id: document.id,
           ...document.data()
         }));
+
 
     const assignments =
       assignmentsSnapshot.docs
@@ -1320,12 +1497,14 @@ async function loadDashboard() {
           ...document.data()
         }));
 
+
     const connections =
       connectionsSnapshot.docs
         .map((document) => ({
           id: document.id,
           ...document.data()
         }));
+
 
     const upcoming =
       sessions
@@ -1342,6 +1521,7 @@ async function loadDashboard() {
         )
         .slice(0, 4);
 
+
     const pendingAssignments =
       assignments
         .filter(
@@ -1350,14 +1530,18 @@ async function loadDashboard() {
         )
         .slice(0, 4);
 
+
     if ($("#dashboardSubtitle")) {
+
       $("#dashboardSubtitle").textContent =
         `Welcome, ${
           profile.name ||
           auth.currentUser.displayName ||
           auth.currentUser.email
         }. Manage your exchange from one place.`;
+
     }
+
 
     dashboard.innerHTML = `
 
@@ -1517,6 +1701,7 @@ async function loadDashboard() {
 
     `;
 
+
     document
       .querySelectorAll("[data-session]")
       .forEach((button) => {
@@ -1528,6 +1713,7 @@ async function loadDashboard() {
 
       });
 
+
     document
       .querySelectorAll("[data-assignment]")
       .forEach((button) => {
@@ -1538,6 +1724,7 @@ async function loadDashboard() {
           );
 
       });
+
 
   } catch (error) {
 
@@ -1596,6 +1783,7 @@ async function completeSession(id) {
   }
 
 }
+
 
 async function completeAssignment(id) {
 
@@ -1657,7 +1845,9 @@ async function loadWallet() {
       $("#walletProgress").style.width = "0%";
 
     return;
+
   }
+
 
   const profile =
     currentUser.profile || {};
@@ -1665,9 +1855,11 @@ async function loadWallet() {
   const points =
     Number(profile.points || 0);
 
+
   if ($("#walletPoints"))
     $("#walletPoints").textContent =
       points.toLocaleString();
+
 
   if ($("#walletRemaining")) {
 
@@ -1680,6 +1872,7 @@ async function loadWallet() {
 
   }
 
+
   if ($("#walletStreak")) {
 
     $("#walletStreak").textContent =
@@ -1687,9 +1880,11 @@ async function loadWallet() {
 
   }
 
+
   if ($("#walletStatus"))
     $("#walletStatus").textContent =
       "Active";
+
 
   if ($("#walletProgress"))
     $("#walletProgress").style.width =
@@ -1729,6 +1924,7 @@ async function loadActivity() {
         )
       );
 
+
     if (!snapshot.docs.length) {
 
       container.innerHTML = `
@@ -1740,7 +1936,9 @@ async function loadActivity() {
       `;
 
       return;
+
     }
+
 
     container.innerHTML =
       snapshot.docs
@@ -1770,6 +1968,7 @@ async function loadActivity() {
 
         })
         .join("");
+
 
   } catch (error) {
 
@@ -1810,6 +2009,7 @@ function themeInit() {
 
 }
 
+
 function updateThemeIcon() {
 
   const button =
@@ -1823,6 +2023,7 @@ function updateThemeIcon() {
       : "☀";
 
 }
+
 
 $("#themeToggle")?.addEventListener(
   "click",
@@ -1844,6 +2045,7 @@ $("#themeToggle")?.addEventListener(
   }
 );
 
+
 themeInit();
 
 
@@ -1854,11 +2056,14 @@ themeInit();
 $("#menuBtn")?.addEventListener(
   "click",
   () => {
+
     $("#mobileNav")?.classList.toggle(
       "open"
     );
+
   }
 );
+
 
 $("#profileBtn")?.addEventListener(
   "click",
@@ -1869,12 +2074,14 @@ $("#profileBtn")?.addEventListener(
       openModal("login");
 
       return;
+
     }
 
     openModal("profile");
 
   }
 );
+
 
 $("#walletAction")?.addEventListener(
   "click",
@@ -1895,10 +2102,12 @@ $("#walletAction")?.addEventListener(
   }
 );
 
+
 $("#skillSearch")?.addEventListener(
   "input",
   () => loadSkills()
 );
+
 
 document
   .querySelectorAll("[data-scroll]")
@@ -1921,7 +2130,7 @@ document
 
 
 /* =========================================================
-   AUTH STATE — MOST IMPORTANT PART
+   AUTH STATE
 ========================================================= */
 
 onAuthStateChanged(
@@ -1939,6 +2148,7 @@ onAuthStateChanged(
 
     updateNavigation(user);
 
+
     if (unsubscribeProfile) {
 
       unsubscribeProfile();
@@ -1946,6 +2156,7 @@ onAuthStateChanged(
       unsubscribeProfile = null;
 
     }
+
 
     if (!user) {
 
@@ -1959,10 +2170,12 @@ onAuthStateChanged(
 
     }
 
+
     try {
 
       const profileReference =
         doc(db, "users", user.uid);
+
 
       unsubscribeProfile =
         onSnapshot(
@@ -1995,6 +2208,7 @@ onAuthStateChanged(
 
             }
 
+
             await loadSkills();
             await loadDashboard();
             await loadWallet();
@@ -2014,6 +2228,7 @@ onAuthStateChanged(
 
           }
         );
+
 
     } catch (error) {
 
