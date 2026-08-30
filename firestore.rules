@@ -2,171 +2,80 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    /* =====================================================
-       HELPER FUNCTIONS
-    ===================================================== */
-
-    function signedIn() {
-      return request.auth != null;
+    function signedIn() { return request.auth != null; }
+    function isOwner(userId) { return signedIn() && request.auth.uid == userId; }
+    function isParticipant() {
+      return signedIn() && request.auth.uid in resource.data.userIds;
     }
-
-    function isOwner(userId) {
-      return signedIn()
-        && request.auth.uid == userId;
-    }
-
-
-    /* =====================================================
-       USERS
-    ===================================================== */
 
     match /users/{userId} {
-
       allow read: if signedIn();
-
       allow create: if isOwner(userId);
-
-      allow update: if isOwner(userId)
-        && request.resource.data.points == resource.data.points
-        && request.resource.data.streak == resource.data.streak
-        && request.resource.data.lastActivity == resource.data.lastActivity
-        && request.resource.data.createdAt == resource.data.createdAt;
-
+      // Simple demo setup: a user can edit their own profile and wallet points.
+      // The app only adds 100 points after both session confirmations are true.
+      allow update: if isOwner(userId);
       allow delete: if false;
     }
 
-
-    /* =====================================================
-       CONNECTIONS
-    ===================================================== */
-
     match /connections/{connectionId} {
-
-      allow read: if signedIn()
-        && request.auth.uid in resource.data.userIds;
-
+      allow read: if signedIn() && request.auth.uid in resource.data.userIds;
       allow create: if signedIn()
         && request.auth.uid in request.resource.data.userIds
         && request.resource.data.userIds.size() == 2
         && request.resource.data.initiator == request.auth.uid;
-
       allow update: if signedIn()
         && request.auth.uid in resource.data.userIds
         && request.resource.data.userIds == resource.data.userIds
         && request.resource.data.initiator == resource.data.initiator
         && request.resource.data.createdAt == resource.data.createdAt;
+      allow delete: if false;
+    }
+
+    match /sessions/{sessionId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.userIds;
+
+      allow create: if signedIn()
+        && request.auth.uid == request.resource.data.createdBy
+        && request.resource.data.userIds.size() == 2
+        && request.auth.uid in request.resource.data.userIds
+        && request.resource.data.status == 'pending_approval';
+
+      // Simple client-side workflow for the college demo:
+      // participants can update the session to approve/reject it,
+      // save contact details, record true/false confirmations,
+      // and mark the session reward as completed.
+      allow update: if signedIn()
+        && request.auth.uid in resource.data.userIds
+        && request.resource.data.userIds == resource.data.userIds
+        && request.resource.data.createdBy == resource.data.createdBy
+        && request.resource.data.createdAt == resource.data.createdAt;
 
       allow delete: if false;
     }
 
-
-    /* =====================================================
-       SESSIONS
-    ===================================================== */
-
-match /sessions/{sessionId} {
-
-  allow read: if signedIn()
-    && request.auth.uid in resource.data.userIds;
-
-  allow create: if signedIn()
-    && request.auth.uid in request.resource.data.userIds
-    && request.resource.data.userIds.size() == 2
-    && request.resource.data.createdBy == request.auth.uid;
-
-  allow update: if signedIn()
-    && request.auth.uid in resource.data.userIds
-    && request.resource.data.userIds == resource.data.userIds
-    && request.resource.data.createdBy == resource.data.createdBy
-    && request.resource.data.createdAt == resource.data.createdAt
-    && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-      'status',
-      'approvedBy',
-      'approvedAt',
-      'confirmations',
-      'completedAt',
-      'startNotifications',
-      'rewardStatus',
-      'pointsAwarded'
-    ]);
-
-  allow delete: if false;
-}
-
-    /* =====================================================
-       ASSIGNMENTS
-    ===================================================== */
-
     match /assignments/{assignmentId} {
-
-      allow read: if signedIn()
-        && (
-          request.auth.uid == resource.data.userId
-          || request.auth.uid == resource.data.partnerId
-        );
-
-      allow create: if signedIn()
-        && request.auth.uid == request.resource.data.userId;
-
+      allow read: if signedIn() && (request.auth.uid == resource.data.userId || request.auth.uid == resource.data.partnerId);
+      allow create: if signedIn() && request.auth.uid == request.resource.data.userId;
       allow update: if signedIn()
         && request.auth.uid == resource.data.userId
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.partnerId == resource.data.partnerId
         && request.resource.data.sessionId == resource.data.sessionId
         && request.resource.data.createdAt == resource.data.createdAt;
-
       allow delete: if false;
     }
-
-
-    /* =====================================================
-       POINT EVENTS
-    ===================================================== */
 
     match /pointEvents/{eventId} {
-
-      /*
-       Users can see their own reward history.
-      */
-      allow read: if signedIn()
-        && request.auth.uid == resource.data.userId;
-
-      /*
-       ONLY Cloud Functions/backend can create rewards.
-      */
-      allow create: if false;
-
-      allow update: if false;
-
-      allow delete: if false;
+      allow read: if signedIn() && request.auth.uid == resource.data.userId;
+      allow create: if signedIn() && request.auth.uid == request.resource.data.userId;
+      allow update, delete: if false;
     }
-
-
-    /* =====================================================
-       REDEMPTIONS
-    ===================================================== */
 
     match /redemptions/{redemptionId} {
-
-      allow read: if signedIn()
-        && request.auth.uid == resource.data.userId;
-
-      /*
-       Backend only.
-      */
-      allow create: if false;
-      allow update: if false;
-      allow delete: if false;
+      allow read: if signedIn() && request.auth.uid == resource.data.userId;
+      allow create, update, delete: if false;
     }
 
-
-    /* =====================================================
-       EVERYTHING ELSE
-    ===================================================== */
-
-    match /{document=**} {
-      allow read, write: if false;
-    }
+    match /{document=**} { allow read, write: if false; }
   }
 }

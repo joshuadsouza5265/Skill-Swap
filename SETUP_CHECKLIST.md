@@ -1,17 +1,18 @@
-# SkillSwap launch checklist
+# Final Setup Checklist
 
-- [Y] Create Firebase project
-- [Y] Enable Email/Password Authentication
-- [Y] Create Firestore database
-- [Y] Paste Firebase web config into `public/firebase-config.js`
-- [ ] Install Firebase CLI
-- [ ] `firebase login`
-- [ ] `firebase use --add`
-- [ ] `firebase deploy`
-- [ ] Create your own account
-- [ ] Create a second account (friend) and test search
-- [ ] Test connection + session scheduling
-- [ ] Test assignment completion
-- [ ] Test session completion and reward points
-- [ ] Add your real payout/discount provider before enabling cash redemption
-- [ ] Add your production domain in Firebase Authentication → Settings → Authorized domains
+- [ ] Firebase Authentication → Email/Password enabled
+- [ ] Firestore database created
+- [ ] `public/firebase-config.js` contains your Firebase web config
+- [ ] Paste `firestore.rules` into Firebase Console → Firestore → Rules → Publish
+- [ ] No Cloud Functions required
+- [ ] No Firebase Hosting required
+- [ ] No Blaze/payment upgrade required
+- [ ] Create account A
+- [ ] Create account B
+- [ ] Send a session request from A to B
+- [ ] Approve from B and enter B contact details
+- [ ] Open session details and verify both contact details are visible
+- [ ] Wait until after the session end time
+- [ ] Confirm YES from both accounts
+- [ ] Verify +100 points on each account
+- [ ] Repeat with one NO and verify no session reward is added
