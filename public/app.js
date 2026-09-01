@@ -207,6 +207,11 @@ function renderModal(type, data = {}) {
           <div class="field"><label>Skills you can teach</label><input id="teach" placeholder="Java, Excel, Figma" required></div>
           <div class="field"><label>Skills you want to learn</label><input id="learn" placeholder="Python, UI/UX" required></div>
         </div>
+        <div class="field">
+          <label>Topics you will cover</label>
+          <textarea id="topics" placeholder="Under Java: OOP, Collections, Exception Handling, JDBC"></textarea>
+          <small class="field-hint">Add the specific topics you can teach under your main skills. Separate topics with commas.</small>
+        </div>
         <div class="field"><label>About you</label><textarea id="bio" placeholder="A short introduction..."></textarea></div>
         <div id="formError"></div>
         <button class="btn primary" type="submit">Create free profile</button>
@@ -229,6 +234,11 @@ function renderModal(type, data = {}) {
         <div class="form-grid">
           <div class="field"><label>Skills you can teach</label><input id="teach" value="${esc((profile.teach || []).join(", "))}" required></div>
           <div class="field"><label>Skills you want to learn</label><input id="learn" value="${esc((profile.learn || []).join(", "))}" required></div>
+        </div>
+        <div class="field">
+          <label>Topics you will cover</label>
+          <textarea id="topics" placeholder="Under Java: OOP, Collections, Exception Handling, JDBC">${esc((profile.topics || []).join(", "))}</textarea>
+          <small class="field-hint">Add the specific topics you can teach under your main skills. Separate topics with commas.</small>
         </div>
         <div class="field"><label>About you</label><textarea id="bio">${esc(profile.bio || "")}</textarea></div>
         <div id="formError"></div>
@@ -346,6 +356,7 @@ function bindModal(type, data) {
           email: credential.user.email,
           teach: split(getValue("#teach")),
           learn: split(getValue("#learn")),
+          topics: split(getValue("#topics")),
           availability: getValue("#availability"),
           bio: getValue("#bio").trim(),
           points: 0,
@@ -371,6 +382,7 @@ function bindModal(type, data) {
         name,
         teach: split(getValue("#teach")),
         learn: split(getValue("#learn")),
+        topics: split(getValue("#topics")),
         availability: getValue("#availability"),
         bio: getValue("#bio").trim()
       });
@@ -646,7 +658,7 @@ async function loadSkills() {
     const users = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       .filter((user) => user.id !== currentUid())
       .filter((user) => {
-        const searchable = `${user.name || ""} ${(user.teach || []).join(" ")} ${(user.learn || []).join(" ")} ${user.bio || ""}`.toLowerCase();
+        const searchable = `${user.name || ""} ${(user.teach || []).join(" ")} ${(user.learn || []).join(" ")} ${(user.topics || []).join(" ")} ${user.bio || ""}`.toLowerCase();
         return !search || searchable.includes(search);
       });
 
@@ -664,7 +676,8 @@ async function loadSkills() {
         <h3>${esc((user.teach || [])[0] || "Skills to share")}</h3>
         <p>${esc(user.bio || "Ready to exchange knowledge one-on-one.")}</p>
         <div class="chips">${(user.teach || []).slice(0, 4).map((skill) => `<span class="chip">${esc(skill)}</span>`).join("")}</div>
-        <button class="btn outline" data-connect="${user.id}">View & connect</button>
+        ${user.topics?.length ? `<div class="topic-preview"><span>Topics</span>${user.topics.slice(0, 4).map((topic) => `<span class="topic-tag">${esc(topic)}</span>`).join("")}${user.topics.length > 4 ? `<span class="topic-more">+${user.topics.length - 4} more</span>` : ""}</div>` : ""}
+        <button class="btn outline connect-btn" data-connect="${user.id}"><span>View profile & connect</span><b>→</b></button>
       </article>`).join("");
 
     document.querySelectorAll("[data-connect]").forEach((button) => {
@@ -751,7 +764,8 @@ async function loadDashboard() {
           <div class="list-item session-clickable" data-session-details="${session.id}">
             <strong>${esc(session.topicA)} ↔ ${esc(session.topicB)}</strong>
             <small>${esc(formatDate(session.scheduledAt))} · ${Number(session.duration || 60)} min · ${esc(statusLabel(session.displayStatus || session.status))}
-              ${(session.displayStatus || session.status) === "awaiting_confirmation" ? `<button class="small-complete" data-confirm-session="${session.id}">Confirm</button>` : ""}
+              <span class="details-hint">View details →</span>
+              ${(session.displayStatus || session.status) === "awaiting_confirmation" ? `<button class="small-complete" data-confirm-session="${session.id}">Confirm session</button>` : ""}
             </small>
           </div>`).join("") : `<div class="list-item"><small>No sessions scheduled yet.</small></div>`}</div>
       </div>`;
@@ -774,7 +788,7 @@ async function loadDashboard() {
       <div class="dash-card">
         <h3>Assignments</h3>
         <div class="list">${pendingAssignments.length ? pendingAssignments.map((assignment) => `
-          <div class="list-item"><strong>${esc(assignment.title)}</strong><small>${esc(assignment.description || "")} <button class="small-complete" data-assignment="${assignment.id}">Complete</button></small></div>`).join("") : `<div class="list-item"><small>No pending assignments.</small></div>`}</div>
+          <div class="list-item"><strong>${esc(assignment.title)}</strong><small>${esc(assignment.description || "")} <button class="small-complete" data-assignment="${assignment.id}">Mark complete</button></small></div>`).join("") : `<div class="list-item"><small>No pending assignments.</small></div>`}</div>
       </div>`;
 
     document.querySelectorAll("[data-approve-session]").forEach((button) => {

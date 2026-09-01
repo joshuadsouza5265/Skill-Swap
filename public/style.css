@@ -5,3 +5,109 @@
 /* Session cards can be opened to see full details. */
 .session-clickable { cursor: pointer; }
 .session-clickable:hover { transform: translateY(-1px); }
+
+/* =========================================================
+   POLISHED DASHBOARD ACTIONS & TOPIC DISPLAY
+========================================================= */
+.small-complete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  margin: 8px 0 0 7px;
+  padding: 7px 11px;
+  border: 1px solid #8d70ff45;
+  border-radius: 9px;
+  background: #8d70ff14;
+  color: var(--purple2);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .15px;
+  transition: transform .18s ease, background .18s ease, border-color .18s ease, box-shadow .18s ease;
+}
+
+.small-complete:hover {
+  transform: translateY(-2px);
+  background: #8d70ff25;
+  border-color: #8d70ff70;
+  box-shadow: 0 8px 22px #8d70ff18;
+}
+
+.small-complete:active { transform: translateY(0); }
+
+.session-clickable {
+  cursor: pointer;
+  transition: transform .18s ease, border-color .18s ease, background .18s ease, box-shadow .18s ease;
+}
+
+.session-clickable:hover {
+  transform: translateY(-2px);
+  border-color: #8d70ff55;
+  background: var(--surface2);
+  box-shadow: 0 10px 30px #00000018;
+}
+
+.details-hint {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--purple2);
+  font-weight: 800;
+  opacity: .9;
+}
+
+.topic-preview {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin: -5px 0 16px;
+}
+
+.topic-preview > span:first-child {
+  width: 100%;
+  margin-bottom: 1px;
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+.topic-tag,
+.topic-more {
+  padding: 5px 8px;
+  border-radius: 7px;
+  background: #8d70ff0c;
+  border: 1px solid #8d70ff20;
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.topic-more { color: var(--purple2); font-weight: 800; }
+
+.connect-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.connect-btn b {
+  font-size: 16px;
+  line-height: 1;
+  color: var(--purple2);
+  transition: transform .18s ease;
+}
+
+.connect-btn:hover b { transform: translateX(3px); }
+
+.field-hint {
+  color: var(--muted);
+  font-size: 9px;
+  line-height: 1.45;
+}
+
+@media (max-width: 600px) {
+  .small-complete { margin-left: 0; margin-top: 7px; }
+  .details-hint { display: block; margin: 4px 0 0; }
+}
